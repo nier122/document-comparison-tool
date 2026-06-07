@@ -1,6 +1,10 @@
+import { useState } from 'react';
 import PDFViewer from './PDFViewer';
 
 function SideBySideViewer() {
+  const [pdfA, setPdfA] = useState<File | null>(null);
+  const [pdfB, setPdfB] = useState<File | null>(null);
+
   return (
     <div
       style={{
@@ -9,8 +13,8 @@ function SideBySideViewer() {
         flex: 1,
       }}
     >
-      <PDFViewer title="PDF A" />
-      <PDFViewer title="PDF B" />
+      <PDFViewer title="PDF A" file={pdfA} onFileSelect={setPdfA} />
+      <PDFViewer title="PDF B" file={pdfB} onFileSelect={setPdfB} />
     </div>
   );
 }
