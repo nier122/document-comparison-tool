@@ -1,14 +1,27 @@
 import { useEffect, useState } from 'react';
 import { Document, Page } from 'react-pdf';
 import PDFUploadPanel from './PDFUploadPanel';
+import type { PdfExtractionState } from '../types/comparison';
 
 type PDFViewerProps = {
   title: string;
   file: File | null;
+  extraction: PdfExtractionState;
   onFileSelect: (file: File | null) => void;
 };
 
-function PDFViewer({ title, file, onFileSelect }: PDFViewerProps) {
+function formatExtractionStatus(status: PdfExtractionState['status']) {
+  switch (status) {
+    case 'extracting':
+      return 'Extracting';
+    case 'extracted':
+      return 'Extracted';
+    case 'not-extracted':
+      return 'Not Extracted';
+  }
+}
+
+function PDFViewer({ title, file, extraction, onFileSelect }: PDFViewerProps) {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
 
@@ -36,6 +49,8 @@ function PDFViewer({ title, file, onFileSelect }: PDFViewerProps) {
     });
   }
 
+  const pageCount = extraction.pageCount ?? numPages;
+
   return (
     <section
       style={{
@@ -47,6 +62,11 @@ function PDFViewer({ title, file, onFileSelect }: PDFViewerProps) {
     >
       <h2>{title}</h2>
       <PDFUploadPanel label={`${title} upload`} onFileSelect={onFileSelect} />
+
+      <div style={{ marginTop: '12px' }}>
+        <p>Extraction Status: {formatExtractionStatus(extraction.status)}</p>
+        <p>Page Count: {pageCount ?? 'Unknown'}</p>
+      </div>
 
       {file === null ? (
         <p>No PDF selected.</p>
