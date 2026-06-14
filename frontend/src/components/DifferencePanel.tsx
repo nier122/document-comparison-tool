@@ -30,6 +30,17 @@ function getDifferencePreview(difference: Difference) {
   return `${preview.slice(0, 180)}...`;
 }
 
+function formatDifferenceType(type: Difference['type']) {
+  switch (type) {
+    case 'added':
+      return 'Added';
+    case 'deleted':
+      return 'Deleted';
+    case 'modified':
+      return 'Modified';
+  }
+}
+
 function DifferencePanel({ differences = [] }: DifferencePanelProps) {
   return (
     <section
@@ -44,7 +55,7 @@ function DifferencePanel({ differences = [] }: DifferencePanelProps) {
         resize: 'vertical',
       }}
     >
-      <h2>Differences</h2>
+      <h2>Differences ({differences.length})</h2>
 
       {differences.length === 0 ? (
         <p>No differences detected.</p>
@@ -52,7 +63,7 @@ function DifferencePanel({ differences = [] }: DifferencePanelProps) {
         <ul>
           {differences.map((difference) => (
             <li key={difference.id}>
-              <strong>{difference.type}</strong> - {getPageLabel(difference)}
+              <strong>{formatDifferenceType(difference.type)}</strong> - {getPageLabel(difference)}
               <p>{getDifferencePreview(difference)}</p>
             </li>
           ))}
