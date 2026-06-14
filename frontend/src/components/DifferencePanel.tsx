@@ -37,8 +37,11 @@ function DifferencePanel({ differences = [] }: DifferencePanelProps) {
         marginTop: '16px',
         border: '1px solid #ccc',
         padding: '16px',
-        height: '200px',
+        height: '320px',
+        minHeight: '160px',
+        maxHeight: '70vh',
         overflow: 'auto',
+        resize: 'vertical',
       }}
     >
       <h2>Differences</h2>
