@@ -9,7 +9,7 @@ export type Difference = {
   textB?: string;
 };
 
-export type ExtractionStatus = 'not-extracted' | 'extracting' | 'extracted';
+export type ExtractionStatus = 'not-extracted' | 'extracting' | 'extracted' | 'failed';
 
 export type ExtractedPdfPage = {
   pageNumber: number;
