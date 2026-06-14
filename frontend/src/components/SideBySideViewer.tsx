@@ -3,7 +3,7 @@ import { getDocument } from 'pdfjs-dist';
 import DifferencePanel from './DifferencePanel';
 import PDFViewer from './PDFViewer';
 import { generateDifferences } from '../services/diffService';
-import type { ExtractedPdfPage, PdfExtractionState } from '../types/comparison';
+import type { Difference, ExtractedPdfPage, PdfExtractionState } from '../types/comparison';
 
 const initialExtractionState: PdfExtractionState = {
   status: 'not-extracted',
@@ -89,6 +89,7 @@ function usePdfTextExtraction(file: File | null) {
 function SideBySideViewer() {
   const [pdfA, setPdfA] = useState<File | null>(null);
   const [pdfB, setPdfB] = useState<File | null>(null);
+  const [selectedDifference, setSelectedDifference] = useState<Difference | null>(null);
   const pdfAExtraction = usePdfTextExtraction(pdfA);
   const pdfBExtraction = usePdfTextExtraction(pdfB);
   const differences = useMemo(() => {
@@ -99,6 +100,15 @@ function SideBySideViewer() {
     return generateDifferences(pdfAExtraction.pages, pdfBExtraction.pages);
   }, [pdfAExtraction, pdfBExtraction]);
 
+  useEffect(() => {
+    if (
+      selectedDifference !== null &&
+      differences.every((difference) => difference.id !== selectedDifference.id)
+    ) {
+      setSelectedDifference(null);
+    }
+  }, [differences, selectedDifference]);
+
   return (
     <>
       <div
@@ -108,10 +118,26 @@ function SideBySideViewer() {
           flex: 1,
         }}
       >
-        <PDFViewer title="PDF A" file={pdfA} extraction={pdfAExtraction} onFileSelect={setPdfA} />
-        <PDFViewer title="PDF B" file={pdfB} extraction={pdfBExtraction} onFileSelect={setPdfB} />
+        <PDFViewer
+          title="PDF A"
+          file={pdfA}
+          extraction={pdfAExtraction}
+          targetPage={selectedDifference?.pageA}
+          onFileSelect={setPdfA}
+        />
+        <PDFViewer
+          title="PDF B"
+          file={pdfB}
+          extraction={pdfBExtraction}
+          targetPage={selectedDifference?.pageB}
+          onFileSelect={setPdfB}
+        />
       </div>
-      <DifferencePanel differences={differences} />
+      <DifferencePanel
+        differences={differences}
+        selectedDifferenceId={selectedDifference?.id}
+        onDifferenceSelect={setSelectedDifference}
+      />
     </>
   );
 }
