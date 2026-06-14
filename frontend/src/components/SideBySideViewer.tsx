@@ -9,6 +9,12 @@ const initialExtractionState: PdfExtractionState = {
   pageCount: null,
 };
 
+const failedExtractionState: PdfExtractionState = {
+  status: 'failed',
+  pages: [],
+  pageCount: null,
+};
+
 async function extractPdfText(file: File): Promise<ExtractedPdfPage[]> {
   const buffer = await file.arrayBuffer();
   const pdf = await getDocument({ data: new Uint8Array(buffer) }).promise;
@@ -67,7 +73,7 @@ function usePdfTextExtraction(file: File | null) {
           return;
         }
 
-        setExtraction(initialExtractionState);
+        setExtraction(failedExtractionState);
       });
 
     return () => {
