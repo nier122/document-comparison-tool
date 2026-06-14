@@ -68,6 +68,7 @@ function PDFViewer({ title, file, extraction, onFileSelect }: PDFViewerProps) {
       <div style={{ marginTop: '12px' }}>
         <p>Extraction Status: {formatExtractionStatus(extraction.status)}</p>
         <p>Page Count: {pageCount ?? 'Unknown'}</p>
+        {extraction.status === 'failed' ? <p>Text extraction failed for this PDF.</p> : null}
       </div>
 
       {file === null ? (
