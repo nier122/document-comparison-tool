@@ -44,6 +44,7 @@ function formatDifferenceType(type: Difference['type']) {
 function DifferencePanel({ differences = [] }: DifferencePanelProps) {
   return (
     <section
+      aria-label="Detected differences"
       style={{
         marginTop: '16px',
         border: '1px solid #ccc',
