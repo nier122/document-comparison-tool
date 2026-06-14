@@ -1,4 +1,4 @@
-export type DifferenceType = 'added' | 'removed' | 'modified';
+export type DifferenceType = 'added' | 'deleted' | 'modified';
 
 export type Difference = {
   id: string;
