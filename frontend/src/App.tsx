@@ -1,4 +1,3 @@
-import DifferencePanel from './components/DifferencePanel';
 import SideBySideViewer from './components/SideBySideViewer';
 
 function App() {
@@ -14,7 +13,6 @@ function App() {
     >
       <h1>Document Comparison Tool</h1>
       <SideBySideViewer />
-      <DifferencePanel />
     </div>
   );
 }
