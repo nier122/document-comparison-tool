@@ -2,6 +2,8 @@ import type { Difference } from '../types/comparison';
 
 type DifferencePanelProps = {
   differences?: Difference[];
+  selectedDifferenceId?: string;
+  onDifferenceSelect?: (difference: Difference) => void;
 };
 
 function getPageLabel(difference: Difference) {
@@ -41,7 +43,11 @@ function formatDifferenceType(type: Difference['type']) {
   }
 }
 
-function DifferencePanel({ differences = [] }: DifferencePanelProps) {
+function DifferencePanel({
+  differences = [],
+  selectedDifferenceId,
+  onDifferenceSelect,
+}: DifferencePanelProps) {
   return (
     <section
       aria-label="Detected differences"
@@ -61,13 +67,33 @@ function DifferencePanel({ differences = [] }: DifferencePanelProps) {
       {differences.length === 0 ? (
         <p>No differences detected.</p>
       ) : (
-        <ul>
-          {differences.map((difference) => (
-            <li key={difference.id}>
-              <strong>{formatDifferenceType(difference.type)}</strong> - {getPageLabel(difference)}
-              <p>{getDifferencePreview(difference)}</p>
-            </li>
-          ))}
+        <ul style={{ listStyle: 'none', padding: 0 }}>
+          {differences.map((difference) => {
+            const isSelected = difference.id === selectedDifferenceId;
+
+            return (
+              <li key={difference.id} style={{ marginBottom: '12px' }}>
+                <button
+                  type="button"
+                  aria-pressed={isSelected}
+                  onClick={() => onDifferenceSelect?.(difference)}
+                  style={{
+                    width: '100%',
+                    border: isSelected ? '2px solid #4f46e5' : '1px solid #ccc',
+                    background: isSelected ? '#eef2ff' : '#fff',
+                    color: '#1f2937',
+                    cursor: 'pointer',
+                    padding: '10px',
+                    textAlign: 'left',
+                  }}
+                >
+                  <strong>{formatDifferenceType(difference.type)}</strong> -{' '}
+                  {getPageLabel(difference)}
+                  <p style={{ marginBottom: 0 }}>{getDifferencePreview(difference)}</p>
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>
