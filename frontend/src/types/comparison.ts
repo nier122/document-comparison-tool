@@ -5,8 +5,8 @@ export type Difference = {
   type: DifferenceType;
   pageA?: number;
   pageB?: number;
-  textA?: string;
-  textB?: string;
+  textBefore?: string;
+  textAfter?: string;
 };
 
 export type ExtractionStatus = 'not-extracted' | 'extracting' | 'extracted' | 'failed';
