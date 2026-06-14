@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Document, Page } from 'react-pdf';
 import PDFUploadPanel from './PDFUploadPanel';
 import type { PdfExtractionState } from '../types/comparison';
@@ -7,6 +7,7 @@ type PDFViewerProps = {
   title: string;
   file: File | null;
   extraction: PdfExtractionState;
+  targetPage?: number;
   onFileSelect: (file: File | null) => void;
 };
 
@@ -23,14 +24,25 @@ function formatExtractionStatus(status: PdfExtractionState['status']) {
   }
 }
 
-function PDFViewer({ title, file, extraction, onFileSelect }: PDFViewerProps) {
+function PDFViewer({ title, file, extraction, targetPage, onFileSelect }: PDFViewerProps) {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
+  const viewerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     setNumPages(null);
     setPageNumber(1);
   }, [file]);
+
+  useEffect(() => {
+    if (targetPage === undefined || numPages === null) {
+      return;
+    }
+
+    const nextPage = Math.min(Math.max(targetPage, 1), numPages);
+    setPageNumber(nextPage);
+    viewerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [targetPage, numPages]);
 
   function handleLoadSuccess({ numPages: loadedPages }: { numPages: number }) {
     setNumPages(loadedPages);
@@ -55,6 +67,7 @@ function PDFViewer({ title, file, extraction, onFileSelect }: PDFViewerProps) {
 
   return (
     <section
+      ref={viewerRef}
       style={{
         flex: 1,
         border: '1px solid #ccc',
