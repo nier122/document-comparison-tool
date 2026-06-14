@@ -16,6 +16,8 @@ function formatExtractionStatus(status: PdfExtractionState['status']) {
       return 'Extracting';
     case 'extracted':
       return 'Extracted';
+    case 'failed':
+      return 'Failed';
     case 'not-extracted':
       return 'Not Extracted';
   }
