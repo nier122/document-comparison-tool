@@ -8,7 +8,7 @@ type DifferencePanelProps = {
 
 function getPageLabel(difference: Difference) {
   if (difference.pageA !== undefined && difference.pageB !== undefined) {
-    return `PDF A page ${difference.pageA}, PDF B page ${difference.pageB}`;
+    return `PDF A page ${difference.pageA} / PDF B page ${difference.pageB}`;
   }
 
   if (difference.pageA !== undefined) {
@@ -22,16 +22,6 @@ function getPageLabel(difference: Difference) {
   return 'Page unknown';
 }
 
-function getDifferencePreview(difference: Difference) {
-  const preview = difference.textAfter ?? difference.textBefore ?? '';
-
-  if (preview.length <= 180) {
-    return preview;
-  }
-
-  return `${preview.slice(0, 180)}...`;
-}
-
 function formatDifferenceType(type: Difference['type']) {
   switch (type) {
     case 'added':
@@ -41,6 +31,34 @@ function formatDifferenceType(type: Difference['type']) {
     case 'modified':
       return 'Modified';
   }
+}
+
+function getDifferenceTone(type: Difference['type']) {
+  switch (type) {
+    case 'added':
+      return {
+        background: '#ecfdf5',
+        border: '#10b981',
+      };
+    case 'deleted':
+      return {
+        background: '#fef2f2',
+        border: '#ef4444',
+      };
+    case 'modified':
+      return {
+        background: '#fffbeb',
+        border: '#f59e0b',
+      };
+  }
+}
+
+function renderText(text: string | undefined, emptyLabel: string) {
+  if (text === undefined || text.length === 0) {
+    return <span style={{ color: '#6b7280' }}>{emptyLabel}</span>;
+  }
+
+  return text;
 }
 
 function DifferencePanel({
@@ -55,9 +73,9 @@ function DifferencePanel({
         marginTop: '16px',
         border: '1px solid #ccc',
         padding: '16px',
-        height: '320px',
-        minHeight: '160px',
-        maxHeight: '70vh',
+        height: '420px',
+        minHeight: '220px',
+        maxHeight: '78vh',
         overflow: 'auto',
         resize: 'vertical',
       }}
@@ -70,27 +88,80 @@ function DifferencePanel({
         <ul style={{ listStyle: 'none', padding: 0 }}>
           {differences.map((difference) => {
             const isSelected = difference.id === selectedDifferenceId;
+            const tone = getDifferenceTone(difference.type);
 
             return (
-              <li key={difference.id} style={{ marginBottom: '12px' }}>
-                <button
-                  type="button"
-                  aria-pressed={isSelected}
+              <li key={difference.id} style={{ marginBottom: '14px' }}>
+                <article
+                  aria-current={isSelected ? 'true' : undefined}
                   onClick={() => onDifferenceSelect?.(difference)}
                   style={{
-                    width: '100%',
-                    border: isSelected ? '2px solid #4f46e5' : '1px solid #ccc',
+                    border: isSelected ? '2px solid #4f46e5' : `1px solid ${tone.border}`,
                     background: isSelected ? '#eef2ff' : '#fff',
-                    color: '#1f2937',
                     cursor: 'pointer',
-                    padding: '10px',
-                    textAlign: 'left',
+                    padding: '12px',
                   }}
                 >
-                  <strong>{formatDifferenceType(difference.type)}</strong> -{' '}
-                  {getPageLabel(difference)}
-                  <p style={{ marginBottom: 0 }}>{getDifferencePreview(difference)}</p>
-                </button>
+                  <div
+                    style={{
+                      alignItems: 'center',
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: '8px',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <div>
+                      <strong>{formatDifferenceType(difference.type)}</strong>
+                      <span style={{ color: '#4b5563', marginLeft: '8px' }}>
+                        {getPageLabel(difference)}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onDifferenceSelect?.(difference);
+                      }}
+                    >
+                      Go To Difference
+                    </button>
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'grid',
+                      gap: '12px',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                      marginTop: '12px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        background: difference.type === 'added' ? '#f9fafb' : '#fff',
+                        border: '1px solid #d1d5db',
+                        padding: '10px',
+                      }}
+                    >
+                      <strong>Before</strong>
+                      <p style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }}>
+                        {renderText(difference.textBefore, 'No matching text in PDF A')}
+                      </p>
+                    </div>
+                    <div
+                      style={{
+                        background: tone.background,
+                        border: `1px solid ${tone.border}`,
+                        padding: '10px',
+                      }}
+                    >
+                      <strong>After</strong>
+                      <p style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }}>
+                        {renderText(difference.textAfter, 'No matching text in PDF B')}
+                      </p>
+                    </div>
+                  </div>
+                </article>
               </li>
             );
           })}
