@@ -8,6 +8,7 @@ type PDFViewerProps = {
   file: File | null;
   extraction: PdfExtractionState;
   targetPage?: number;
+  navigationRequest?: number;
   onFileSelect: (file: File | null) => void;
 };
 
@@ -24,9 +25,17 @@ function formatExtractionStatus(status: PdfExtractionState['status']) {
   }
 }
 
-function PDFViewer({ title, file, extraction, targetPage, onFileSelect }: PDFViewerProps) {
+function PDFViewer({
+  title,
+  file,
+  extraction,
+  targetPage,
+  navigationRequest,
+  onFileSelect,
+}: PDFViewerProps) {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
+  const [zoom, setZoom] = useState(1);
   const viewerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -42,7 +51,7 @@ function PDFViewer({ title, file, extraction, targetPage, onFileSelect }: PDFVie
     const nextPage = Math.min(Math.max(targetPage, 1), numPages);
     setPageNumber(nextPage);
     viewerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [targetPage, numPages]);
+  }, [targetPage, numPages, navigationRequest]);
 
   function handleLoadSuccess({ numPages: loadedPages }: { numPages: number }) {
     setNumPages(loadedPages);
@@ -63,7 +72,20 @@ function PDFViewer({ title, file, extraction, targetPage, onFileSelect }: PDFVie
     });
   }
 
+  function zoomOut() {
+    setZoom((currentZoom) => Math.max(Number((currentZoom - 0.1).toFixed(1)), 0.6));
+  }
+
+  function zoomIn() {
+    setZoom((currentZoom) => Math.min(Number((currentZoom + 0.1).toFixed(1)), 1.8));
+  }
+
+  function resetZoom() {
+    setZoom(1);
+  }
+
   const pageCount = extraction.pageCount ?? numPages;
+  const pageWidth = Math.round(420 * zoom);
 
   return (
     <section
@@ -92,7 +114,7 @@ function PDFViewer({ title, file, extraction, targetPage, onFileSelect }: PDFVie
             Page {pageNumber} of {numPages ?? '...'}
           </p>
 
-          <div style={{ display: 'flex', gap: '8px', margin: '8px 0' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', margin: '8px 0' }}>
             <button type="button" onClick={goToPreviousPage} disabled={pageNumber <= 1}>
               Previous Page
             </button>
@@ -103,10 +125,19 @@ function PDFViewer({ title, file, extraction, targetPage, onFileSelect }: PDFVie
             >
               Next Page
             </button>
+            <button type="button" onClick={zoomOut} disabled={zoom <= 0.6}>
+              Zoom Out
+            </button>
+            <button type="button" onClick={resetZoom} disabled={zoom === 1}>
+              {Math.round(zoom * 100)}%
+            </button>
+            <button type="button" onClick={zoomIn} disabled={zoom >= 1.8}>
+              Zoom In
+            </button>
           </div>
 
           <Document file={file} onLoadSuccess={handleLoadSuccess}>
-            <Page pageNumber={pageNumber} width={420} />
+            <Page pageNumber={pageNumber} width={pageWidth} />
           </Document>
         </div>
       )}
