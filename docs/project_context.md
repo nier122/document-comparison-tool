@@ -47,6 +47,25 @@ Excluded:
 - Standards memory
 - Compliance checking
 - Multi-document comparison
+- Backend services
+
+## Current Implementation Focus
+
+The current implementation should remain focused on generated PDFs only.
+
+Do not add OCR, handwritten recognition, or backend services during the current MVP phase.
+
+Generated-PDF extraction should continue improving before scanned-PDF workflows are introduced.
+
+## Future Extraction Requirements
+
+The app must eventually support more document-aware extraction features:
+
+- Table-aware extraction so tabular content can be compared by rows, columns, and cells.
+- Header and footer detection so repeated page furniture does not create false differences.
+- Column-aware reading order so multi-column documents are extracted in visual reading order.
+- Scanned PDF OCR after generated-PDF comparison is reliable.
+- Handwritten PDF OCR as a future advanced feature after standard scanned OCR is proven.
 
 ## Technical Preferences
 
@@ -58,10 +77,20 @@ Frontend:
 Backend:
 - Node.js
 - Express
+- Backend work is deferred until the frontend comparison workflow is validated.
 
 Comparison:
 - diff-match-patch
 - jsdiff
+- Current implementation may use custom frontend comparison services where they better fit PDF extraction data.
+
+Extraction:
+- Coordinate-based text ordering for generated PDFs
+- Future table-aware extraction
+- Future header/footer detection
+- Future column-aware reading order
+- Future OCR for scanned PDFs
+- Future advanced OCR for handwritten PDFs
 
 Deployment:
 - Vercel
