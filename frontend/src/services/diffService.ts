@@ -1,4 +1,4 @@
-import type { Difference, ExtractedPdfPage } from '../types/comparison';
+import type { Difference, DifferenceTextPart, ExtractedPdfPage } from '../types/comparison';
 
 type TextBlock = {
   pageNumber: number;
@@ -30,8 +30,8 @@ function normalizeDisplayText(text: string) {
     .normalize('NFKC')
     .replace(/\u00ad/g, '')
     .replace(/([A-Za-z])-\s+([A-Za-z])/g, '$1$2')
-    .replace(/[“”]/g, '"')
-    .replace(/[‘’]/g, "'")
+    .replace(/[\u201c\u201d]/g, '"')
+    .replace(/[\u2018\u2019]/g, "'")
     .replace(/\s+([,.;:!?])/g, '$1')
     .replace(/([([{])\s+/g, '$1')
     .replace(/\s+([)\]}])/g, '$1')
@@ -177,6 +177,106 @@ function joinBlockText(blocks: TextBlock[]) {
   return blocks.map((block) => block.text).join(' ');
 }
 
+function tokenizeText(text: string) {
+  return normalizeDisplayText(text).match(/\S+/g) ?? [];
+}
+
+function getWordKey(word: string) {
+  return word
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '')
+    .trim();
+}
+
+function buildWordLcsTable(wordsA: string[], wordsB: string[]) {
+  const table = Array.from({ length: wordsA.length + 1 }, () =>
+    Array.from({ length: wordsB.length + 1 }, () => 0),
+  );
+
+  for (let indexA = wordsA.length - 1; indexA >= 0; indexA -= 1) {
+    for (let indexB = wordsB.length - 1; indexB >= 0; indexB -= 1) {
+      if (getWordKey(wordsA[indexA]) === getWordKey(wordsB[indexB])) {
+        table[indexA][indexB] = table[indexA + 1][indexB + 1] + 1;
+      } else {
+        table[indexA][indexB] = Math.max(table[indexA + 1][indexB], table[indexA][indexB + 1]);
+      }
+    }
+  }
+
+  return table;
+}
+
+function appendPart(parts: DifferenceTextPart[], part: DifferenceTextPart) {
+  if (part.text.length === 0) {
+    return;
+  }
+
+  const previousPart = parts[parts.length - 1];
+
+  if (previousPart?.type === part.type) {
+    previousPart.text = `${previousPart.text} ${part.text}`;
+  } else {
+    parts.push(part);
+  }
+}
+
+function getChangedText(parts: DifferenceTextPart[], type: DifferenceTextPart['type']) {
+  return parts
+    .filter((part) => part.type === type)
+    .map((part) => part.text)
+    .join(' ')
+    .trim();
+}
+
+function createWordLevelDiff(textBefore: string, textAfter: string) {
+  const wordsBefore = tokenizeText(textBefore);
+  const wordsAfter = tokenizeText(textAfter);
+  const lcsTable = buildWordLcsTable(wordsBefore, wordsAfter);
+  const beforeParts: DifferenceTextPart[] = [];
+  const afterParts: DifferenceTextPart[] = [];
+  const inlineParts: DifferenceTextPart[] = [];
+  let indexBefore = 0;
+  let indexAfter = 0;
+
+  while (indexBefore < wordsBefore.length && indexAfter < wordsAfter.length) {
+    if (getWordKey(wordsBefore[indexBefore]) === getWordKey(wordsAfter[indexAfter])) {
+      appendPart(beforeParts, { type: 'unchanged', text: wordsBefore[indexBefore] });
+      appendPart(afterParts, { type: 'unchanged', text: wordsAfter[indexAfter] });
+      appendPart(inlineParts, { type: 'unchanged', text: wordsAfter[indexAfter] });
+      indexBefore += 1;
+      indexAfter += 1;
+    } else if (lcsTable[indexBefore + 1][indexAfter] >= lcsTable[indexBefore][indexAfter + 1]) {
+      appendPart(beforeParts, { type: 'deleted', text: wordsBefore[indexBefore] });
+      appendPart(inlineParts, { type: 'deleted', text: wordsBefore[indexBefore] });
+      indexBefore += 1;
+    } else {
+      appendPart(afterParts, { type: 'added', text: wordsAfter[indexAfter] });
+      appendPart(inlineParts, { type: 'added', text: wordsAfter[indexAfter] });
+      indexAfter += 1;
+    }
+  }
+
+  while (indexBefore < wordsBefore.length) {
+    appendPart(beforeParts, { type: 'deleted', text: wordsBefore[indexBefore] });
+    appendPart(inlineParts, { type: 'deleted', text: wordsBefore[indexBefore] });
+    indexBefore += 1;
+  }
+
+  while (indexAfter < wordsAfter.length) {
+    appendPart(afterParts, { type: 'added', text: wordsAfter[indexAfter] });
+    appendPart(inlineParts, { type: 'added', text: wordsAfter[indexAfter] });
+    indexAfter += 1;
+  }
+
+  return {
+    beforeParts,
+    afterParts,
+    inlineParts,
+    changedTextBefore: getChangedText(beforeParts, 'deleted'),
+    changedTextAfter: getChangedText(afterParts, 'added'),
+  };
+}
+
 function getFirstPage(blocks: TextBlock[]) {
   return blocks[0]?.pageNumber;
 }
@@ -204,13 +304,18 @@ function createModifiedDifference(
   deletedBlocks: TextBlock[],
   addedBlocks: TextBlock[],
 ): Difference {
+  const textBefore = joinBlockText(deletedBlocks);
+  const textAfter = joinBlockText(addedBlocks);
+  const wordDiff = createWordLevelDiff(textBefore, textAfter);
+
   return {
     id: `difference-${id}-modified`,
     type: 'modified',
     pageA: getFirstPage(deletedBlocks),
     pageB: getFirstPage(addedBlocks),
-    textBefore: joinBlockText(deletedBlocks),
-    textAfter: joinBlockText(addedBlocks),
+    textBefore,
+    textAfter,
+    ...wordDiff,
   };
 }
 
