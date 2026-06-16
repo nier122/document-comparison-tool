@@ -90,6 +90,7 @@ function SideBySideViewer() {
   const [pdfA, setPdfA] = useState<File | null>(null);
   const [pdfB, setPdfB] = useState<File | null>(null);
   const [selectedDifference, setSelectedDifference] = useState<Difference | null>(null);
+  const [navigationRequest, setNavigationRequest] = useState(0);
   const pdfAExtraction = usePdfTextExtraction(pdfA);
   const pdfBExtraction = usePdfTextExtraction(pdfB);
   const differences = useMemo(() => {
@@ -109,6 +110,11 @@ function SideBySideViewer() {
     }
   }, [differences, selectedDifference]);
 
+  function handleDifferenceSelect(difference: Difference) {
+    setSelectedDifference(difference);
+    setNavigationRequest((currentRequest) => currentRequest + 1);
+  }
+
   return (
     <>
       <div
@@ -123,6 +129,7 @@ function SideBySideViewer() {
           file={pdfA}
           extraction={pdfAExtraction}
           targetPage={selectedDifference?.pageA}
+          navigationRequest={navigationRequest}
           onFileSelect={setPdfA}
         />
         <PDFViewer
@@ -130,13 +137,14 @@ function SideBySideViewer() {
           file={pdfB}
           extraction={pdfBExtraction}
           targetPage={selectedDifference?.pageB}
+          navigationRequest={navigationRequest}
           onFileSelect={setPdfB}
         />
       </div>
       <DifferencePanel
         differences={differences}
         selectedDifferenceId={selectedDifference?.id}
-        onDifferenceSelect={setSelectedDifference}
+        onDifferenceSelect={handleDifferenceSelect}
       />
     </>
   );
