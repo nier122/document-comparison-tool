@@ -1,9 +1,12 @@
 import type { Difference, DifferenceTextPart } from '../types/comparison';
 
 type DifferencePanelProps = {
+  currentDifferenceIndex?: number;
   differences?: Difference[];
   selectedDifferenceId?: string;
   onDifferenceSelect?: (difference: Difference) => void;
+  onNextDifference?: () => void;
+  onPreviousDifference?: () => void;
 };
 
 function getPageLabel(difference: Difference) {
@@ -125,10 +128,19 @@ function renderInlineDifference(difference: Difference) {
 }
 
 function DifferencePanel({
+  currentDifferenceIndex = -1,
   differences = [],
   selectedDifferenceId,
   onDifferenceSelect,
+  onNextDifference,
+  onPreviousDifference,
 }: DifferencePanelProps) {
+  const selectedDifferenceNumber = currentDifferenceIndex >= 0 ? currentDifferenceIndex + 1 : null;
+  const currentDifferenceLabel =
+    selectedDifferenceNumber === null
+      ? `No difference selected (${differences.length} total)`
+      : `Difference ${selectedDifferenceNumber} of ${differences.length}`;
+
   return (
     <section
       aria-label="Detected differences"
@@ -143,7 +155,38 @@ function DifferencePanel({
         resize: 'vertical',
       }}
     >
-      <h2>Differences ({differences.length})</h2>
+      <div
+        style={{
+          alignItems: 'center',
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '12px',
+          justifyContent: 'space-between',
+          marginBottom: '12px',
+        }}
+      >
+        <h2 style={{ margin: 0 }}>Differences ({differences.length})</h2>
+        <div style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+          <button
+            type="button"
+            disabled={currentDifferenceIndex <= 0}
+            onClick={onPreviousDifference}
+          >
+            Previous Difference
+          </button>
+          <span>{currentDifferenceLabel}</span>
+          <button
+            type="button"
+            disabled={
+              differences.length === 0 ||
+              (currentDifferenceIndex !== -1 && currentDifferenceIndex >= differences.length - 1)
+            }
+            onClick={onNextDifference}
+          >
+            Next Difference
+          </button>
+        </div>
+      </div>
 
       {differences.length === 0 ? (
         <p>No differences detected.</p>
