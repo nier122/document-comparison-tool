@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getDocument } from 'pdfjs-dist';
 import DifferencePanel from './DifferencePanel';
+import PDFExtractionDebugView from './PDFExtractionDebugView';
 import PDFViewer from './PDFViewer';
 import { generateDifferences } from '../services/diffService';
 import type { Difference, ExtractedPdfPage, PdfExtractionState } from '../types/comparison';
@@ -257,6 +258,7 @@ function SideBySideViewer() {
   const [pdfB, setPdfB] = useState<File | null>(null);
   const [selectedDifference, setSelectedDifference] = useState<Difference | null>(null);
   const [navigationRequest, setNavigationRequest] = useState(0);
+  const [showDebugView, setShowDebugView] = useState(false);
   const pdfAExtraction = usePdfTextExtraction(pdfA);
   const pdfBExtraction = usePdfTextExtraction(pdfB);
   const differences = useMemo(() => {
@@ -312,6 +314,22 @@ function SideBySideViewer() {
         selectedDifferenceId={selectedDifference?.id}
         onDifferenceSelect={handleDifferenceSelect}
       />
+      <div style={{ marginTop: '16px' }}>
+        <label>
+          <input
+            checked={showDebugView}
+            onChange={(event) => setShowDebugView(event.target.checked)}
+            type="checkbox"
+          />{' '}
+          Show Debug View
+        </label>
+      </div>
+      {showDebugView ? (
+        <PDFExtractionDebugView
+          pdfAExtraction={pdfAExtraction}
+          pdfBExtraction={pdfBExtraction}
+        />
+      ) : null}
     </>
   );
 }
