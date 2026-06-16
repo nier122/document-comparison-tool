@@ -1,4 +1,4 @@
-import type { Difference } from '../types/comparison';
+import type { Difference, DifferenceTextPart } from '../types/comparison';
 
 type DifferencePanelProps = {
   differences?: Difference[];
@@ -59,6 +59,69 @@ function renderText(text: string | undefined, emptyLabel: string) {
   }
 
   return text;
+}
+
+function getPartStyle(type: DifferenceTextPart['type']) {
+  switch (type) {
+    case 'added':
+      return {
+        background: '#bbf7d0',
+        color: '#14532d',
+        fontWeight: 700,
+      };
+    case 'deleted':
+      return {
+        background: '#fecaca',
+        color: '#7f1d1d',
+        fontWeight: 700,
+        textDecoration: 'line-through',
+      };
+    case 'unchanged':
+      return {
+        background: 'transparent',
+        color: 'inherit',
+        fontWeight: 400,
+      };
+  }
+}
+
+function renderTextParts(
+  parts: DifferenceTextPart[] | undefined,
+  fallbackText: string | undefined,
+  emptyLabel: string,
+) {
+  if (parts === undefined || parts.length === 0) {
+    return renderText(fallbackText, emptyLabel);
+  }
+
+  return parts.map((part, index) => (
+    <span key={`${part.type}-${index}`} style={getPartStyle(part.type)}>
+      {part.text}
+      {index < parts.length - 1 ? ' ' : ''}
+    </span>
+  ));
+}
+
+function renderInlineDifference(difference: Difference) {
+  if (difference.inlineParts === undefined || difference.inlineParts.length === 0) {
+    return null;
+  }
+
+  return (
+    <div
+      style={{
+        background: '#f9fafb',
+        border: '1px solid #d1d5db',
+        marginTop: '12px',
+        padding: '10px',
+      }}
+    >
+      <strong>Changed words</strong>
+      <p style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }}>
+        {renderTextParts(difference.inlineParts, undefined, 'No word-level changes found')}
+      </p>
+    </div>
+  );
 }
 
 function DifferencePanel({
@@ -128,6 +191,8 @@ function DifferencePanel({
                     </button>
                   </div>
 
+                  {difference.type === 'modified' ? renderInlineDifference(difference) : null}
+
                   <div
                     style={{
                       display: 'grid',
@@ -145,7 +210,11 @@ function DifferencePanel({
                     >
                       <strong>Before</strong>
                       <p style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }}>
-                        {renderText(difference.textBefore, 'No matching text in PDF A')}
+                        {renderTextParts(
+                          difference.beforeParts,
+                          difference.textBefore,
+                          'No matching text in PDF A',
+                        )}
                       </p>
                     </div>
                     <div
@@ -157,7 +226,11 @@ function DifferencePanel({
                     >
                       <strong>After</strong>
                       <p style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }}>
-                        {renderText(difference.textAfter, 'No matching text in PDF B')}
+                        {renderTextParts(
+                          difference.afterParts,
+                          difference.textAfter,
+                          'No matching text in PDF B',
+                        )}
                       </p>
                     </div>
                   </div>
