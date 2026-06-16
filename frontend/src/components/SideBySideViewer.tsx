@@ -268,6 +268,13 @@ function SideBySideViewer() {
 
     return generateDifferences(pdfAExtraction.pages, pdfBExtraction.pages);
   }, [pdfAExtraction, pdfBExtraction]);
+  const selectedDifferenceIndex = useMemo(() => {
+    if (selectedDifference === null) {
+      return -1;
+    }
+
+    return differences.findIndex((difference) => difference.id === selectedDifference.id);
+  }, [differences, selectedDifference]);
 
   useEffect(() => {
     if (
@@ -281,6 +288,37 @@ function SideBySideViewer() {
   function handleDifferenceSelect(difference: Difference) {
     setSelectedDifference(difference);
     setNavigationRequest((currentRequest) => currentRequest + 1);
+  }
+
+  function goToDifferenceAtIndex(nextIndex: number) {
+    const nextDifference = differences[nextIndex];
+
+    if (nextDifference === undefined) {
+      return;
+    }
+
+    handleDifferenceSelect(nextDifference);
+  }
+
+  function goToPreviousDifference() {
+    if (selectedDifferenceIndex <= 0) {
+      return;
+    }
+
+    goToDifferenceAtIndex(selectedDifferenceIndex - 1);
+  }
+
+  function goToNextDifference() {
+    if (differences.length === 0) {
+      return;
+    }
+
+    if (selectedDifferenceIndex === -1) {
+      goToDifferenceAtIndex(0);
+      return;
+    }
+
+    goToDifferenceAtIndex(selectedDifferenceIndex + 1);
   }
 
   return (
@@ -310,9 +348,12 @@ function SideBySideViewer() {
         />
       </div>
       <DifferencePanel
+        currentDifferenceIndex={selectedDifferenceIndex}
         differences={differences}
         selectedDifferenceId={selectedDifference?.id}
         onDifferenceSelect={handleDifferenceSelect}
+        onNextDifference={goToNextDifference}
+        onPreviousDifference={goToPreviousDifference}
       />
       <div style={{ marginTop: '16px' }}>
         <label>
