@@ -309,6 +309,10 @@ function doesValueMatchField(fieldDefinition: FieldDefinition, value: string) {
   return new RegExp(`^${fieldDefinition.valuePattern}$`, 'i').test(normalizeDisplayText(value));
 }
 
+function getFieldValuePattern(fieldDefinition: FieldDefinition) {
+  return new RegExp(fieldDefinition.valuePattern, 'i');
+}
+
 function isMultiWordField(fieldDefinition: FieldDefinition) {
   return (
     fieldDefinition.key === 'customer' ||
@@ -316,6 +320,89 @@ function isMultiWordField(fieldDefinition: FieldDefinition) {
     fieldDefinition.key === 'itemDescription' ||
     fieldDefinition.key === 'remarks'
   );
+}
+
+function splitTextIntoCellFragments(text: string) {
+  return normalizeDisplayText(text)
+    .split(/\s*\|\s*/)
+    .map((fragment) => normalizeDisplayText(fragment))
+    .filter(Boolean);
+}
+
+function getEmbeddedFieldCandidate(
+  fieldDefinition: FieldDefinition,
+  location: PdfTextLocation,
+  pageNumber: number,
+): FieldCandidate | null {
+  const pattern = getFieldPattern(fieldDefinition);
+  const match = pattern.exec(location.text);
+
+  if (match === null) {
+    return null;
+  }
+
+  const value = normalizeDisplayText(match[2] ?? '');
+
+  if (value.length === 0) {
+    return null;
+  }
+
+  return {
+    key: fieldDefinition.key,
+    label: fieldDefinition.label,
+    value,
+    pageNumber,
+    sourceText: match[0],
+    locations: [location],
+  };
+}
+
+function getCellValueForField(fieldDefinition: FieldDefinition, text: string) {
+  const fragments = splitTextIntoCellFragments(text);
+
+  if (fragments.length === 0) {
+    return normalizeDisplayText(text);
+  }
+
+  const explicitFragment = fragments.find((fragment) => getEmbeddedFieldCandidate(
+    fieldDefinition,
+    {
+      pageNumber: 0,
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+      text: fragment,
+    },
+    0,
+  ) !== null);
+
+  if (explicitFragment !== undefined) {
+    const embeddedCandidate = getEmbeddedFieldCandidate(
+      fieldDefinition,
+      {
+        pageNumber: 0,
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        text: explicitFragment,
+      },
+      0,
+    );
+
+    return embeddedCandidate?.value ?? explicitFragment;
+  }
+
+  const matchingFragment = fragments.find((fragment) => doesValueMatchField(fieldDefinition, fragment));
+
+  if (matchingFragment !== undefined) {
+    return matchingFragment;
+  }
+
+  const matchingValue = getFieldValuePattern(fieldDefinition).exec(fragments[0])?.[0];
+
+  return normalizeDisplayText(matchingValue ?? fragments[0]);
 }
 
 function getValueLocationsAfterLabel(
@@ -342,8 +429,13 @@ function getValueLocationsAfterLabel(
     const nextValueLocations = [...valueLocations, location];
     const singleValue = normalizeDisplayText(location.text);
     const combinedValue = normalizeDisplayText(nextValueLocations.map((valueLocation) => valueLocation.text).join(' '));
+    const cellValue = getCellValueForField(fieldDefinition, location.text);
 
     if (doesValueMatchField(fieldDefinition, singleValue)) {
+      return [location];
+    }
+
+    if (doesValueMatchField(fieldDefinition, cellValue)) {
       return [location];
     }
 
@@ -428,6 +520,14 @@ function extractRowFieldCandidates(page: ExtractedPdfPage, line: TextLine) {
   const candidates: FieldCandidate[] = [];
 
   line.locations.forEach((location, locationIndex) => {
+    FIELD_DEFINITIONS.forEach((fieldDefinition) => {
+      const embeddedCandidate = getEmbeddedFieldCandidate(fieldDefinition, location, page.pageNumber);
+
+      if (embeddedCandidate !== null) {
+        addFieldCandidate(candidates, embeddedCandidate);
+      }
+    });
+
     const adjacentLabelText = normalizeDisplayText(
       [location.text, line.locations[locationIndex + 1]?.text].filter(Boolean).join(' '),
     );
@@ -446,12 +546,17 @@ function extractRowFieldCandidates(page: ExtractedPdfPage, line: TextLine) {
       return;
     }
 
+    const value =
+      valueLocations.length === 1
+        ? getCellValueForField(fieldDefinition, valueLocations[0].text)
+        : valueLocations.map((valueLocation) => valueLocation.text).join(' ');
+
     addFieldCandidate(candidates, {
       key: fieldDefinition.key,
       label: fieldDefinition.label,
-      value: valueLocations.map((valueLocation) => valueLocation.text).join(' '),
+      value,
       pageNumber: page.pageNumber,
-      sourceText: line.text,
+      sourceText: value,
       locations: valueLocations,
     });
   });
@@ -512,12 +617,14 @@ function extractTableFieldCandidates(page: ExtractedPdfPage, lines: TextLine[]) 
           return;
         }
 
+        const value = getCellValueForField(nearestColumn.fieldDefinition, location.text);
+
         addFieldCandidate(candidates, {
           key: nearestColumn.fieldDefinition.key,
           label: nearestColumn.fieldDefinition.label,
-          value: location.text,
+          value,
           pageNumber: page.pageNumber,
-          sourceText: valueLine.text,
+          sourceText: value,
           locations: [location],
         });
       });
