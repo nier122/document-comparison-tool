@@ -209,6 +209,85 @@ function DifferencePanel({
     selectedDifferenceNumber === null
       ? `No difference selected (${differences.length} total)`
       : `Difference ${selectedDifferenceNumber} of ${differences.length}`;
+  const fieldDifferences = differences.filter((difference) => difference.isFieldDifference);
+  const textDifferences = differences.filter((difference) => !difference.isFieldDifference);
+
+  function renderDifferenceList(title: string, sectionDifferences: Difference[]) {
+    if (sectionDifferences.length === 0) {
+      return null;
+    }
+
+    return (
+      <section style={{ marginBottom: '18px' }}>
+        <h3 style={{ margin: '0 0 10px' }}>
+          {title} ({sectionDifferences.length})
+        </h3>
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+          {sectionDifferences.map((difference) => {
+            const isSelected = difference.id === selectedDifferenceId;
+            const tone = getDifferenceTone(difference.type);
+
+            return (
+              <li key={difference.id} style={{ marginBottom: '14px' }}>
+                <article
+                  aria-current={isSelected ? 'true' : undefined}
+                  onClick={() => onDifferenceSelect?.(difference)}
+                  style={{
+                    border: isSelected ? '2px solid #4f46e5' : `1px solid ${tone.border}`,
+                    background: isSelected ? '#eef2ff' : '#fff',
+                    cursor: 'pointer',
+                    padding: '12px',
+                  }}
+                >
+                  <div
+                    style={{
+                      alignItems: 'center',
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: '8px',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <div>
+                      <strong>
+                        {difference.isFieldDifference
+                          ? 'Field Difference'
+                          : formatDifferenceType(difference.type)}
+                      </strong>
+                      <span style={{ color: '#4b5563', marginLeft: '8px' }}>
+                        {getPageLabel(difference)}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onDifferenceSelect?.(difference);
+                      }}
+                    >
+                      Go To Difference
+                    </button>
+                  </div>
+
+                  {difference.isFieldDifference ? (
+                    renderFieldDifference(difference)
+                  ) : difference.type === 'modified' ? (
+                    renderInlineDifference(difference)
+                  ) : (
+                    <p style={{ margin: '12px 0 0', whiteSpace: 'pre-wrap' }}>
+                      {difference.type === 'deleted'
+                        ? difference.textBefore
+                        : difference.textAfter}
+                    </p>
+                  )}
+                </article>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+    );
+  }
 
   return (
     <section
@@ -274,69 +353,10 @@ function DifferencePanel({
       ) : (
         <>
           {renderLegend()}
-          <ul style={{ listStyle: 'none', margin: 0, overflow: 'auto', padding: 0 }}>
-            {differences.map((difference) => {
-              const isSelected = difference.id === selectedDifferenceId;
-              const tone = getDifferenceTone(difference.type);
-
-              return (
-                <li key={difference.id} style={{ marginBottom: '14px' }}>
-                  <article
-                    aria-current={isSelected ? 'true' : undefined}
-                    onClick={() => onDifferenceSelect?.(difference)}
-                    style={{
-                      border: isSelected ? '2px solid #4f46e5' : `1px solid ${tone.border}`,
-                      background: isSelected ? '#eef2ff' : '#fff',
-                      cursor: 'pointer',
-                      padding: '12px',
-                    }}
-                  >
-                    <div
-                      style={{
-                        alignItems: 'center',
-                        display: 'flex',
-                        flexWrap: 'wrap',
-                        gap: '8px',
-                        justifyContent: 'space-between',
-                      }}
-                    >
-                      <div>
-                        <strong>
-                          {difference.isFieldDifference
-                            ? 'Field Difference'
-                            : formatDifferenceType(difference.type)}
-                        </strong>
-                        <span style={{ color: '#4b5563', marginLeft: '8px' }}>
-                          {getPageLabel(difference)}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onDifferenceSelect?.(difference);
-                        }}
-                      >
-                        Go To Difference
-                      </button>
-                    </div>
-
-                    {difference.isFieldDifference ? (
-                      renderFieldDifference(difference)
-                    ) : difference.type === 'modified' ? (
-                      renderInlineDifference(difference)
-                    ) : (
-                      <p style={{ margin: '12px 0 0', whiteSpace: 'pre-wrap' }}>
-                        {difference.type === 'deleted'
-                          ? difference.textBefore
-                          : difference.textAfter}
-                      </p>
-                    )}
-                  </article>
-                </li>
-              );
-            })}
-          </ul>
+          <div style={{ overflow: 'auto', paddingRight: '2px' }}>
+            {renderDifferenceList('Field Differences', fieldDifferences)}
+            {renderDifferenceList('Text Differences', textDifferences)}
+          </div>
         </>
       )}
     </section>
