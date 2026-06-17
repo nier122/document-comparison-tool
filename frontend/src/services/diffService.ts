@@ -7,6 +7,22 @@ type TextBlock = {
   tokens: string[];
 };
 
+type FieldDefinition = {
+  key: string;
+  label: string;
+  labelPattern: string;
+  valuePattern: string;
+};
+
+type ExtractedField = {
+  key: string;
+  label: string;
+  value: string;
+  normalizedValue: string;
+  pageNumber: number;
+  sourceText: string;
+};
+
 type DiffOperation =
   | {
       type: 'equal';
@@ -24,6 +40,44 @@ type DiffOperation =
 
 const MIN_MEANINGFUL_KEY_LENGTH = 3;
 const MODIFIED_SIMILARITY_THRESHOLD = 0.35;
+const FIELD_DEFINITIONS: FieldDefinition[] = [
+  {
+    key: 'poNumber',
+    label: 'PO Number',
+    labelPattern: String.raw`(?:P\.?\s*O\.?|PO|Purchase\s+Order)\s*(?:No\.?|Number)?`,
+    valuePattern: String.raw`[A-Z0-9][A-Z0-9./-]*`,
+  },
+  {
+    key: 'invoiceNumber',
+    label: 'Invoice Number',
+    labelPattern: String.raw`Invoice\s*(?:No\.?|Number)?`,
+    valuePattern: String.raw`[A-Z0-9][A-Z0-9./-]*`,
+  },
+  {
+    key: 'date',
+    label: 'Date',
+    labelPattern: String.raw`Date`,
+    valuePattern: String.raw`(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2}|[A-Z][a-z]{2,8}\s+\d{1,2},?\s+\d{4})`,
+  },
+  {
+    key: 'amount',
+    label: 'Amount',
+    labelPattern: String.raw`Amount`,
+    valuePattern: String.raw`(?:[$\u20ac\u00a3]\s*)?-?\d{1,3}(?:,\d{3})*(?:\.\d+)?|-?\d+(?:\.\d+)?`,
+  },
+  {
+    key: 'total',
+    label: 'Total',
+    labelPattern: String.raw`(?:Grand\s+)?Total`,
+    valuePattern: String.raw`(?:[$\u20ac\u00a3]\s*)?-?\d{1,3}(?:,\d{3})*(?:\.\d+)?|-?\d+(?:\.\d+)?`,
+  },
+  {
+    key: 'quantity',
+    label: 'Quantity',
+    labelPattern: String.raw`(?:Qty\.?|Quantity)`,
+    valuePattern: String.raw`-?\d+(?:\.\d+)?`,
+  },
+];
 
 function normalizeDisplayText(text: string) {
   return text
@@ -57,6 +111,154 @@ function tokenizeKey(key: string) {
 
 function isMeaningfulKey(key: string) {
   return key.replace(/\s/g, '').length >= MIN_MEANINGFUL_KEY_LENGTH;
+}
+
+function normalizeFieldValue(value: string) {
+  return normalizeDisplayText(value)
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/[$\u20ac\u00a3,]/g, '')
+    .trim();
+}
+
+function getFieldPattern(fieldDefinition: FieldDefinition) {
+  return new RegExp(
+    String.raw`(?:^|\b)(${fieldDefinition.labelPattern})\s*(?:[:|#-]|\s{2,}|\s)\s*(${fieldDefinition.valuePattern})`,
+    'gi',
+  );
+}
+
+function extractStructuredFields(pages: ExtractedPdfPage[]) {
+  const fieldsByKey = new Map<string, ExtractedField>();
+
+  pages.forEach((page) => {
+    FIELD_DEFINITIONS.forEach((fieldDefinition) => {
+      const pattern = getFieldPattern(fieldDefinition);
+      let match: RegExpExecArray | null;
+
+      while ((match = pattern.exec(page.text)) !== null) {
+        const sourceText = normalizeDisplayText(match[0]);
+        const value = normalizeDisplayText(match[2] ?? '');
+
+        if (value.length === 0) {
+          continue;
+        }
+
+        const existingField = fieldsByKey.get(fieldDefinition.key);
+
+        if (existingField !== undefined) {
+          continue;
+        }
+
+        fieldsByKey.set(fieldDefinition.key, {
+          key: fieldDefinition.key,
+          label: fieldDefinition.label,
+          value,
+          normalizedValue: normalizeFieldValue(value),
+          pageNumber: page.pageNumber,
+          sourceText,
+        });
+      }
+    });
+  });
+
+  return fieldsByKey;
+}
+
+function createFieldDifference(
+  id: number,
+  fieldKey: string,
+  fieldA: ExtractedField | undefined,
+  fieldB: ExtractedField | undefined,
+): Difference {
+  const fieldLabel = fieldA?.label ?? fieldB?.label ?? fieldKey;
+
+  if (fieldA === undefined) {
+    return {
+      id: `field-${id}-${fieldKey}-added`,
+      type: 'added',
+      isFieldDifference: true,
+      fieldKey,
+      fieldLabel,
+      pageB: fieldB?.pageNumber,
+      textAfter: fieldB?.value,
+      changedTextAfter: fieldB?.value,
+      afterParts: fieldB === undefined ? undefined : [{ type: 'added', text: fieldB.value }],
+      inlineParts: fieldB === undefined ? undefined : [{ type: 'added', text: fieldB.value }],
+    };
+  }
+
+  if (fieldB === undefined) {
+    return {
+      id: `field-${id}-${fieldKey}-deleted`,
+      type: 'deleted',
+      isFieldDifference: true,
+      fieldKey,
+      fieldLabel,
+      pageA: fieldA.pageNumber,
+      textBefore: fieldA.value,
+      changedTextBefore: fieldA.value,
+      beforeParts: [{ type: 'deleted', text: fieldA.value }],
+      inlineParts: [{ type: 'deleted', text: fieldA.value }],
+    };
+  }
+
+  return {
+    id: `field-${id}-${fieldKey}-modified`,
+    type: 'modified',
+    isFieldDifference: true,
+    fieldKey,
+    fieldLabel,
+    pageA: fieldA.pageNumber,
+    pageB: fieldB.pageNumber,
+    textBefore: fieldA.value,
+    textAfter: fieldB.value,
+    changedTextBefore: fieldA.value,
+    changedTextAfter: fieldB.value,
+    beforeParts: [{ type: 'deleted', text: fieldA.value }],
+    afterParts: [{ type: 'added', text: fieldB.value }],
+    inlineParts: [
+      { type: 'deleted', text: fieldA.value },
+      { type: 'added', text: fieldB.value },
+    ],
+  };
+}
+
+function compareStructuredFields(
+  fieldsA: Map<string, ExtractedField>,
+  fieldsB: Map<string, ExtractedField>,
+) {
+  const fieldDifferences: Difference[] = [];
+  const fieldKeys = new Set([...fieldsA.keys(), ...fieldsB.keys()]);
+
+  fieldKeys.forEach((fieldKey) => {
+    const fieldA = fieldsA.get(fieldKey);
+    const fieldB = fieldsB.get(fieldKey);
+
+    if (fieldA?.normalizedValue === fieldB?.normalizedValue) {
+      return;
+    }
+
+    fieldDifferences.push(createFieldDifference(fieldDifferences.length + 1, fieldKey, fieldA, fieldB));
+  });
+
+  return fieldDifferences;
+}
+
+function removeFieldSourcesFromPages(pages: ExtractedPdfPage[], fields: Map<string, ExtractedField>) {
+  return pages.map((page) => {
+    const pageFields = [...fields.values()].filter((field) => field.pageNumber === page.pageNumber);
+    let text = page.text;
+
+    pageFields.forEach((field) => {
+      text = text.replace(field.sourceText, ' ');
+    });
+
+    return {
+      ...page,
+      text: normalizeDisplayText(text),
+    };
+  });
 }
 
 function splitIntoBlocks(text: string) {
@@ -353,10 +555,15 @@ export function generateDifferences(
   pdfAPages: ExtractedPdfPage[],
   pdfBPages: ExtractedPdfPage[],
 ): Difference[] {
-  const blocksA = createBlocks(pdfAPages);
-  const blocksB = createBlocks(pdfBPages);
+  const fieldsA = extractStructuredFields(pdfAPages);
+  const fieldsB = extractStructuredFields(pdfBPages);
+  const fieldDifferences = compareStructuredFields(fieldsA, fieldsB);
+  const filteredPdfAPages = removeFieldSourcesFromPages(pdfAPages, fieldsA);
+  const filteredPdfBPages = removeFieldSourcesFromPages(pdfBPages, fieldsB);
+  const blocksA = createBlocks(filteredPdfAPages);
+  const blocksB = createBlocks(filteredPdfBPages);
   const operations = diffBlocks(blocksA, blocksB);
-  const differences: Difference[] = [];
+  const differences: Difference[] = [...fieldDifferences];
   let deletedBlocks: TextBlock[] = [];
   let addedBlocks: TextBlock[] = [];
 

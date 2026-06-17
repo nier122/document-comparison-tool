@@ -10,6 +10,9 @@ export type DifferenceTextPart = {
 export type Difference = {
   id: string;
   type: DifferenceType;
+  isFieldDifference?: boolean;
+  fieldKey?: string;
+  fieldLabel?: string;
   pageA?: number;
   pageB?: number;
   textBefore?: string;

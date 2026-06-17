@@ -157,6 +157,43 @@ function renderLegend() {
   );
 }
 
+function renderFieldDifference(difference: Difference) {
+  return (
+    <div
+      style={{
+        background: '#f9fafb',
+        border: '1px solid #d1d5db',
+        display: 'grid',
+        gap: '8px',
+        marginTop: '12px',
+        padding: '10px',
+      }}
+    >
+      <strong>{difference.fieldLabel ?? 'Detected Field'}</strong>
+      <div>
+        <span style={{ color: '#4b5563' }}>Before: </span>
+        {difference.textBefore === undefined ? (
+          <span style={{ color: '#6b7280' }}>Not present in PDF A</span>
+        ) : (
+          <mark style={{ background: '#fecaca', color: '#7f1d1d', padding: '0 4px' }}>
+            {difference.textBefore}
+          </mark>
+        )}
+      </div>
+      <div>
+        <span style={{ color: '#4b5563' }}>After: </span>
+        {difference.textAfter === undefined ? (
+          <span style={{ color: '#6b7280' }}>Not present in PDF B</span>
+        ) : (
+          <mark style={{ background: '#bbf7d0', color: '#14532d', padding: '0 4px' }}>
+            {difference.textAfter}
+          </mark>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function DifferencePanel({
   currentDifferenceIndex = -1,
   differences = [],
@@ -264,7 +301,11 @@ function DifferencePanel({
                       }}
                     >
                       <div>
-                        <strong>{formatDifferenceType(difference.type)}</strong>
+                        <strong>
+                          {difference.isFieldDifference
+                            ? 'Field Difference'
+                            : formatDifferenceType(difference.type)}
+                        </strong>
                         <span style={{ color: '#4b5563', marginLeft: '8px' }}>
                           {getPageLabel(difference)}
                         </span>
@@ -280,7 +321,9 @@ function DifferencePanel({
                       </button>
                     </div>
 
-                    {difference.type === 'modified' ? (
+                    {difference.isFieldDifference ? (
+                      renderFieldDifference(difference)
+                    ) : difference.type === 'modified' ? (
                       renderInlineDifference(difference)
                     ) : (
                       <p style={{ margin: '12px 0 0', whiteSpace: 'pre-wrap' }}>
