@@ -259,6 +259,7 @@ function SideBySideViewer() {
   const [selectedDifference, setSelectedDifference] = useState<Difference | null>(null);
   const [navigationRequest, setNavigationRequest] = useState(0);
   const [showDebugView, setShowDebugView] = useState(false);
+  const [isDifferencePanelCollapsed, setIsDifferencePanelCollapsed] = useState(false);
   const pdfAExtraction = usePdfTextExtraction(pdfA);
   const pdfBExtraction = usePdfTextExtraction(pdfB);
   const differences = useMemo(() => {
@@ -322,40 +323,72 @@ function SideBySideViewer() {
   }
 
   return (
-    <>
+    <div
+      style={{
+        display: 'flex',
+        flex: 1,
+        flexDirection: 'column',
+        minHeight: 0,
+        overflow: 'hidden',
+      }}
+    >
       <div
         style={{
-          display: 'flex',
-          gap: '16px',
+          display: 'grid',
           flex: 1,
+          gap: '12px',
+          gridTemplateColumns: isDifferencePanelCollapsed ? 'minmax(0, 1fr) 56px' : 'minmax(0, 1fr) minmax(340px, 26vw)',
+          minHeight: 0,
+          overflow: 'hidden',
         }}
       >
-        <PDFViewer
-          title="PDF A"
-          file={pdfA}
-          extraction={pdfAExtraction}
-          targetPage={selectedDifference?.pageA}
-          navigationRequest={navigationRequest}
-          onFileSelect={setPdfA}
-        />
-        <PDFViewer
-          title="PDF B"
-          file={pdfB}
-          extraction={pdfBExtraction}
-          targetPage={selectedDifference?.pageB}
-          navigationRequest={navigationRequest}
-          onFileSelect={setPdfB}
+        <main
+          aria-label="PDF review workspace"
+          style={{
+            display: 'flex',
+            gap: '12px',
+            minHeight: 0,
+            minWidth: 0,
+            overflow: 'hidden',
+          }}
+        >
+          <PDFViewer
+            title="PDF A"
+            file={pdfA}
+            extraction={pdfAExtraction}
+            targetPage={selectedDifference?.pageA}
+            navigationRequest={navigationRequest}
+            onFileSelect={setPdfA}
+          />
+          <PDFViewer
+            title="PDF B"
+            file={pdfB}
+            extraction={pdfBExtraction}
+            targetPage={selectedDifference?.pageB}
+            navigationRequest={navigationRequest}
+            onFileSelect={setPdfB}
+          />
+        </main>
+        <DifferencePanel
+          currentDifferenceIndex={selectedDifferenceIndex}
+          differences={differences}
+          isCollapsed={isDifferencePanelCollapsed}
+          selectedDifferenceId={selectedDifference?.id}
+          onCollapseChange={setIsDifferencePanelCollapsed}
+          onDifferenceSelect={handleDifferenceSelect}
+          onNextDifference={goToNextDifference}
+          onPreviousDifference={goToPreviousDifference}
         />
       </div>
-      <DifferencePanel
-        currentDifferenceIndex={selectedDifferenceIndex}
-        differences={differences}
-        selectedDifferenceId={selectedDifference?.id}
-        onDifferenceSelect={handleDifferenceSelect}
-        onNextDifference={goToNextDifference}
-        onPreviousDifference={goToPreviousDifference}
-      />
-      <div style={{ marginTop: '16px' }}>
+      <div
+        style={{
+          alignItems: 'center',
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '12px',
+          marginTop: '10px',
+        }}
+      >
         <label>
           <input
             checked={showDebugView}
@@ -366,12 +399,14 @@ function SideBySideViewer() {
         </label>
       </div>
       {showDebugView ? (
-        <PDFExtractionDebugView
-          pdfAExtraction={pdfAExtraction}
-          pdfBExtraction={pdfBExtraction}
-        />
+        <div style={{ maxHeight: '34vh', overflow: 'auto' }}>
+          <PDFExtractionDebugView
+            pdfAExtraction={pdfAExtraction}
+            pdfBExtraction={pdfBExtraction}
+          />
+        </div>
       ) : null}
-    </>
+    </div>
   );
 }
 

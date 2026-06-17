@@ -4,14 +4,16 @@ function App() {
   return (
     <div
       style={{
-        height: '100vh',
+        boxSizing: 'border-box',
         display: 'flex',
         flexDirection: 'column',
-        padding: '16px',
-        boxSizing: 'border-box',
+        height: '100vh',
+        overflow: 'hidden',
+        padding: '12px',
+        width: '100vw',
       }}
     >
-      <h1>Document Comparison Tool</h1>
+      <h1 style={{ fontSize: '20px', margin: '0 0 12px' }}>Document Comparison Tool</h1>
       <SideBySideViewer />
     </div>
   );

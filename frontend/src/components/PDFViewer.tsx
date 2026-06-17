@@ -36,12 +36,33 @@ function PDFViewer({
   const [numPages, setNumPages] = useState<number | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [zoom, setZoom] = useState(1);
+  const [fitToWidth, setFitToWidth] = useState(true);
+  const [availablePageWidth, setAvailablePageWidth] = useState(640);
   const viewerRef = useRef<HTMLElement | null>(null);
+  const pageAreaRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setNumPages(null);
     setPageNumber(1);
   }, [file]);
+
+  useEffect(() => {
+    const pageArea = pageAreaRef.current;
+
+    if (pageArea === null) {
+      return;
+    }
+
+    const resizeObserver = new ResizeObserver(([entry]) => {
+      setAvailablePageWidth(Math.max(Math.floor(entry.contentRect.width - 24), 320));
+    });
+
+    resizeObserver.observe(pageArea);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
 
   useEffect(() => {
     if (targetPage === undefined || numPages === null) {
@@ -73,19 +94,26 @@ function PDFViewer({
   }
 
   function zoomOut() {
+    setFitToWidth(false);
     setZoom((currentZoom) => Math.max(Number((currentZoom - 0.1).toFixed(1)), 0.6));
   }
 
   function zoomIn() {
+    setFitToWidth(false);
     setZoom((currentZoom) => Math.min(Number((currentZoom + 0.1).toFixed(1)), 1.8));
   }
 
   function resetZoom() {
+    setFitToWidth(false);
     setZoom(1);
   }
 
+  function fitPageToWidth() {
+    setFitToWidth(true);
+  }
+
   const pageCount = extraction.pageCount ?? numPages;
-  const pageWidth = Math.round(420 * zoom);
+  const pageWidth = fitToWidth ? availablePageWidth : Math.round(640 * zoom);
 
   return (
     <section
@@ -93,27 +121,30 @@ function PDFViewer({
       style={{
         flex: 1,
         border: '1px solid #ccc',
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: 0,
+        minWidth: 0,
         padding: '16px',
-        overflow: 'auto',
+        overflow: 'hidden',
       }}
     >
-      <h2>{title}</h2>
+      <div style={{ alignItems: 'center', display: 'flex', gap: '12px', justifyContent: 'space-between' }}>
+        <h2 style={{ margin: 0 }}>{title}</h2>
+        <span>{file === null ? 'No PDF selected' : `Page ${pageNumber} of ${numPages ?? '...'}`}</span>
+      </div>
       <PDFUploadPanel label={`${title} upload`} onFileSelect={onFileSelect} />
 
-      <div style={{ marginTop: '12px' }}>
-        <p>Extraction Status: {formatExtractionStatus(extraction.status)}</p>
-        <p>Page Count: {pageCount ?? 'Unknown'}</p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginTop: '10px' }}>
+        <span>Extraction: {formatExtractionStatus(extraction.status)}</span>
+        <span>Pages: {pageCount ?? 'Unknown'}</span>
         {extraction.status === 'failed' ? <p>Text extraction failed for this PDF.</p> : null}
       </div>
 
       {file === null ? (
         <p>No PDF selected.</p>
       ) : (
-        <div style={{ marginTop: '16px' }}>
-          <p>
-            Page {pageNumber} of {numPages ?? '...'}
-          </p>
-
+        <div style={{ display: 'flex', flex: 1, flexDirection: 'column', minHeight: 0, marginTop: '12px' }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', margin: '8px 0' }}>
             <button type="button" onClick={goToPreviousPage} disabled={pageNumber <= 1}>
               Previous Page
@@ -129,16 +160,36 @@ function PDFViewer({
               Zoom Out
             </button>
             <button type="button" onClick={resetZoom} disabled={zoom === 1}>
-              {Math.round(zoom * 100)}%
+              {fitToWidth ? 'Fit Width' : `${Math.round(zoom * 100)}%`}
             </button>
             <button type="button" onClick={zoomIn} disabled={zoom >= 1.8}>
               Zoom In
             </button>
+            <button type="button" onClick={fitPageToWidth} disabled={fitToWidth}>
+              Fit To Width
+            </button>
           </div>
 
-          <Document file={file} onLoadSuccess={handleLoadSuccess}>
-            <Page pageNumber={pageNumber} width={pageWidth} />
-          </Document>
+          <div
+            ref={pageAreaRef}
+            style={{
+              background: '#f3f4f6',
+              flex: 1,
+              minHeight: 0,
+              overflow: 'auto',
+              padding: '12px',
+            }}
+          >
+            <Document file={file} onLoadSuccess={handleLoadSuccess}>
+              <div
+                data-page-number={pageNumber}
+                data-highlight-layer="pending"
+                style={{ display: 'inline-block', position: 'relative' }}
+              >
+                <Page pageNumber={pageNumber} width={pageWidth} />
+              </div>
+            </Document>
+          </div>
         </div>
       )}
     </section>

@@ -3,7 +3,9 @@ import type { Difference, DifferenceTextPart } from '../types/comparison';
 type DifferencePanelProps = {
   currentDifferenceIndex?: number;
   differences?: Difference[];
+  isCollapsed?: boolean;
   selectedDifferenceId?: string;
+  onCollapseChange?: (isCollapsed: boolean) => void;
   onDifferenceSelect?: (difference: Difference) => void;
   onNextDifference?: () => void;
   onPreviousDifference?: () => void;
@@ -130,7 +132,9 @@ function renderInlineDifference(difference: Difference) {
 function DifferencePanel({
   currentDifferenceIndex = -1,
   differences = [],
+  isCollapsed = false,
   selectedDifferenceId,
+  onCollapseChange,
   onDifferenceSelect,
   onNextDifference,
   onPreviousDifference,
@@ -145,14 +149,14 @@ function DifferencePanel({
     <section
       aria-label="Detected differences"
       style={{
-        marginTop: '16px',
         border: '1px solid #ccc',
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        minHeight: 0,
+        minWidth: 0,
+        overflow: 'hidden',
         padding: '16px',
-        height: '420px',
-        minHeight: '220px',
-        maxHeight: '78vh',
-        overflow: 'auto',
-        resize: 'vertical',
       }}
     >
       <div
@@ -165,7 +169,18 @@ function DifferencePanel({
           marginBottom: '12px',
         }}
       >
-        <h2 style={{ margin: 0 }}>Differences ({differences.length})</h2>
+        <h2
+          style={{
+            margin: 0,
+            writingMode: isCollapsed ? 'vertical-rl' : 'horizontal-tb',
+          }}
+        >
+          {isCollapsed ? `Differences (${differences.length})` : `Differences (${differences.length})`}
+        </h2>
+        <button type="button" onClick={() => onCollapseChange?.(!isCollapsed)}>
+          {isCollapsed ? 'Open' : 'Collapse'}
+        </button>
+        {!isCollapsed ? (
         <div style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
           <button
             type="button"
@@ -186,12 +201,13 @@ function DifferencePanel({
             Next Difference
           </button>
         </div>
+        ) : null}
       </div>
 
-      {differences.length === 0 ? (
+      {isCollapsed ? null : differences.length === 0 ? (
         <p>No differences detected.</p>
       ) : (
-        <ul style={{ listStyle: 'none', padding: 0 }}>
+        <ul style={{ listStyle: 'none', margin: 0, overflow: 'auto', padding: 0 }}>
           {differences.map((difference) => {
             const isSelected = difference.id === selectedDifferenceId;
             const tone = getDifferenceTone(difference.type);
