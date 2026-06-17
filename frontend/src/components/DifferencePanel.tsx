@@ -280,6 +280,11 @@ function DifferencePanel({
                         : difference.textAfter}
                     </p>
                   )}
+                  {difference.ignoredReason !== undefined ? (
+                    <p style={{ color: '#6b7280', margin: '10px 0 0' }}>
+                      Ignored: {difference.ignoredReason}
+                    </p>
+                  ) : null}
                 </article>
               </li>
             );

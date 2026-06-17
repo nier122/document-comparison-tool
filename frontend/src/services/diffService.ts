@@ -1,4 +1,7 @@
 import type {
+  ComparisonFieldKey,
+  ComparisonResult,
+  ComparisonSettings,
   Difference,
   DifferenceTextPart,
   ExtractedPdfPage,
@@ -72,6 +75,28 @@ const MIN_MEANINGFUL_KEY_LENGTH = 3;
 const MODIFIED_SIMILARITY_THRESHOLD = 0.35;
 const TABLE_LINE_Y_TOLERANCE = 3;
 const MAX_MULTI_WORD_FIELD_VALUE_LOCATIONS = 4;
+export const defaultComparisonSettings: ComparisonSettings = {
+  importantFields: {
+    poNumber: true,
+    invoiceNumber: true,
+    date: true,
+    quantity: true,
+    amount: true,
+    total: true,
+    itemDescription: true,
+    remarks: true,
+  },
+  ignoreRules: {
+    pageNumbers: true,
+    printDates: true,
+    generatedDates: true,
+    footerText: true,
+    headerText: true,
+    companyAddress: true,
+    boilerplateTerms: true,
+  },
+  showIgnoredDifferences: false,
+};
 const FIELD_DEFINITIONS: FieldDefinition[] = [
   {
     key: 'poNumber',
@@ -135,6 +160,20 @@ const FIELD_DEFINITIONS: FieldDefinition[] = [
     labelPattern: String.raw`(?:Supplier|Vendor|Seller|Ship\s*From)`,
     valuePattern: String.raw`[A-Z0-9][A-Z0-9&.,'() /-]{1,80}`,
     aliases: ['supplier', 'vendor', 'seller', 'ship from'],
+  },
+  {
+    key: 'itemDescription',
+    label: 'Item Description',
+    labelPattern: String.raw`(?:Item\s*Description|Description|Material|Service|Item)`,
+    valuePattern: String.raw`[A-Z0-9][A-Z0-9&.,'() /-]{1,160}`,
+    aliases: ['item description', 'description', 'material', 'service', 'item'],
+  },
+  {
+    key: 'remarks',
+    label: 'Remarks',
+    labelPattern: String.raw`(?:Remarks?|Notes?|Comments?)`,
+    valuePattern: String.raw`[A-Z0-9][A-Z0-9&.,'() /-]{1,220}`,
+    aliases: ['remark', 'remarks', 'note', 'notes', 'comment', 'comments'],
   },
 ];
 
@@ -271,7 +310,12 @@ function doesValueMatchField(fieldDefinition: FieldDefinition, value: string) {
 }
 
 function isMultiWordField(fieldDefinition: FieldDefinition) {
-  return fieldDefinition.key === 'customer' || fieldDefinition.key === 'supplier';
+  return (
+    fieldDefinition.key === 'customer' ||
+    fieldDefinition.key === 'supplier' ||
+    fieldDefinition.key === 'itemDescription' ||
+    fieldDefinition.key === 'remarks'
+  );
 }
 
 function getValueLocationsAfterLabel(
@@ -995,10 +1039,138 @@ function pushMeaningfulChanges(
   differences.push(createAddedDifference(nextId + 1, addedBlocks));
 }
 
-export function generateDifferences(
+function getDifferenceText(difference: Difference) {
+  return [
+    difference.fieldLabel,
+    difference.textBefore,
+    difference.textAfter,
+    difference.changedTextBefore,
+    difference.changedTextAfter,
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function isEdgeLocation(location: PdfTextLocation, edge: 'top' | 'bottom', pageHeights: Map<number, number>) {
+  const pageHeight = pageHeights.get(location.pageNumber) ?? Math.max(location.y + location.height, 1);
+  const ratio = location.y / pageHeight;
+
+  return edge === 'top' ? ratio >= 0.88 : ratio <= 0.12;
+}
+
+function hasOnlyEdgeLocations(
+  difference: Difference,
+  edge: 'top' | 'bottom',
+  pageHeights: Map<number, number>,
+) {
+  const locations = [...(difference.beforeLocations ?? []), ...(difference.afterLocations ?? [])];
+
+  return locations.length > 0 && locations.every((location) => isEdgeLocation(location, edge, pageHeights));
+}
+
+function getIgnoredReason(
+  difference: Difference,
+  settings: ComparisonSettings,
+  pageHeights: Map<number, number>,
+) {
+  const text = getDifferenceText(difference);
+  const key = createComparisonKey(text);
+  const fieldKey = difference.fieldKey as ComparisonFieldKey | undefined;
+
+  if (
+    difference.isFieldDifference &&
+    fieldKey !== undefined &&
+    fieldKey in settings.importantFields &&
+    !settings.importantFields[fieldKey]
+  ) {
+    return `${difference.fieldLabel ?? fieldKey} is not selected as an important field`;
+  }
+
+  if (settings.ignoreRules.pageNumbers && /^(?:page\s*)?\d+\s*(?:of|\/|-)\s*\d+$|^\d+$/i.test(text.trim())) {
+    return 'Ignored page number';
+  }
+
+  if (
+    settings.ignoreRules.printDates &&
+    /\b(?:printed|print date)\b/i.test(text) &&
+    /\b\d{1,4}[/-]\d{1,2}[/-]\d{1,4}\b/.test(text)
+  ) {
+    return 'Ignored print date';
+  }
+
+  if (
+    settings.ignoreRules.generatedDates &&
+    /\b(?:generated|created|exported)\b/i.test(text) &&
+    /\b\d{1,4}[/-]\d{1,2}[/-]\d{1,4}\b/.test(text)
+  ) {
+    return 'Ignored generated date';
+  }
+
+  if (settings.ignoreRules.headerText && hasOnlyEdgeLocations(difference, 'top', pageHeights)) {
+    return 'Ignored header text';
+  }
+
+  if (settings.ignoreRules.footerText && hasOnlyEdgeLocations(difference, 'bottom', pageHeights)) {
+    return 'Ignored footer text';
+  }
+
+  if (
+    settings.ignoreRules.companyAddress &&
+    /\b(?:address|street|road|avenue|suite|floor|unit|postal|zip|tel|phone|fax|email)\b/i.test(text)
+  ) {
+    return 'Ignored company address';
+  }
+
+  if (
+    settings.ignoreRules.boilerplateTerms &&
+    /\b(?:terms?|conditions?|standard approval workflow|confidential|all rights reserved|system generated|no signature required)\b/i.test(text)
+  ) {
+    return 'Ignored boilerplate terms';
+  }
+
+  if (key.length < MIN_MEANINGFUL_KEY_LENGTH) {
+    return 'Ignored low-signal text';
+  }
+
+  return undefined;
+}
+
+function applyComparisonSettings(
+  differences: Difference[],
+  settings: ComparisonSettings,
+  pageHeights: Map<number, number>,
+): ComparisonResult {
+  const visibleDifferences: Difference[] = [];
+  const ignoredDifferences: Difference[] = [];
+
+  differences.forEach((difference) => {
+    const ignoredReason = getIgnoredReason(difference, settings, pageHeights);
+
+    if (ignoredReason === undefined) {
+      visibleDifferences.push(difference);
+      return;
+    }
+
+    ignoredDifferences.push({
+      ...difference,
+      ignoredReason,
+    });
+  });
+
+  return {
+    differences: visibleDifferences,
+    ignoredDifferences,
+  };
+}
+
+export function generateComparisonResult(
   pdfAPages: ExtractedPdfPage[],
   pdfBPages: ExtractedPdfPage[],
-): Difference[] {
+  settings: ComparisonSettings = defaultComparisonSettings,
+): ComparisonResult {
+  const pageHeights = new Map(
+    [...pdfAPages, ...pdfBPages].map((page) => [page.pageNumber, page.pageHeight] as const),
+  );
   const fieldsA = extractStructuredFields(pdfAPages);
   const fieldsB = extractStructuredFields(pdfBPages);
   const fieldDifferences = compareStructuredFields(fieldsA, fieldsB);
@@ -1029,5 +1201,12 @@ export function generateDifferences(
 
   pushMeaningfulChanges(differences, deletedBlocks, addedBlocks);
 
-  return differences;
+  return applyComparisonSettings(differences, settings, pageHeights);
+}
+
+export function generateDifferences(
+  pdfAPages: ExtractedPdfPage[],
+  pdfBPages: ExtractedPdfPage[],
+): Difference[] {
+  return generateComparisonResult(pdfAPages, pdfBPages).differences;
 }

@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getDocument } from 'pdfjs-dist';
+import ComparisonSettingsPanel from './ComparisonSettingsPanel';
 import DifferencePanel from './DifferencePanel';
 import PDFExtractionDebugView from './PDFExtractionDebugView';
 import PDFViewer from './PDFViewer';
-import { generateDifferences } from '../services/diffService';
+import { defaultComparisonSettings, generateComparisonResult } from '../services/diffService';
 import type {
+  ComparisonSettings,
   Difference,
   ExtractedPdfPage,
   PdfExtractionState,
@@ -271,15 +273,22 @@ function SideBySideViewer() {
   const [navigationRequest, setNavigationRequest] = useState(0);
   const [showDebugView, setShowDebugView] = useState(false);
   const [isDifferencePanelCollapsed, setIsDifferencePanelCollapsed] = useState(false);
+  const [comparisonSettings, setComparisonSettings] =
+    useState<ComparisonSettings>(defaultComparisonSettings);
   const pdfAExtraction = usePdfTextExtraction(pdfA);
   const pdfBExtraction = usePdfTextExtraction(pdfB);
-  const differences = useMemo(() => {
+  const comparisonResult = useMemo(() => {
     if (pdfAExtraction.status !== 'extracted' || pdfBExtraction.status !== 'extracted') {
-      return [];
+      return {
+        differences: [],
+        ignoredDifferences: [],
+      };
     }
 
-    return generateDifferences(pdfAExtraction.pages, pdfBExtraction.pages);
-  }, [pdfAExtraction, pdfBExtraction]);
+    return generateComparisonResult(pdfAExtraction.pages, pdfBExtraction.pages, comparisonSettings);
+  }, [comparisonSettings, pdfAExtraction, pdfBExtraction]);
+  const differences = comparisonResult.differences;
+  const ignoredDifferences = comparisonResult.ignoredDifferences;
   const selectedDifferenceIndex = useMemo(() => {
     if (selectedDifference === null) {
       return -1;
@@ -413,11 +422,25 @@ function SideBySideViewer() {
           Show Debug View
         </label>
       </div>
+      <ComparisonSettingsPanel
+        ignoredDifferenceCount={ignoredDifferences.length}
+        settings={comparisonSettings}
+        onSettingsChange={setComparisonSettings}
+      />
       {showDebugView ? (
         <div style={{ maxHeight: '34vh', overflow: 'auto' }}>
           <PDFExtractionDebugView
             pdfAExtraction={pdfAExtraction}
             pdfBExtraction={pdfBExtraction}
+          />
+        </div>
+      ) : null}
+      {comparisonSettings.showIgnoredDifferences && ignoredDifferences.length > 0 ? (
+        <div style={{ maxHeight: '34vh', marginTop: '10px', overflow: 'auto' }}>
+          <DifferencePanel
+            differences={ignoredDifferences}
+            selectedDifferenceId={selectedDifference?.id}
+            onDifferenceSelect={handleDifferenceSelect}
           />
         </div>
       ) : null}

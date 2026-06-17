@@ -7,6 +7,31 @@ export type DifferenceTextPart = {
   text: string;
 };
 
+export type ComparisonFieldKey =
+  | 'poNumber'
+  | 'invoiceNumber'
+  | 'date'
+  | 'quantity'
+  | 'amount'
+  | 'total'
+  | 'itemDescription'
+  | 'remarks';
+
+export type IgnoreRuleKey =
+  | 'pageNumbers'
+  | 'printDates'
+  | 'generatedDates'
+  | 'footerText'
+  | 'headerText'
+  | 'companyAddress'
+  | 'boilerplateTerms';
+
+export type ComparisonSettings = {
+  importantFields: Record<ComparisonFieldKey, boolean>;
+  ignoreRules: Record<IgnoreRuleKey, boolean>;
+  showIgnoredDifferences: boolean;
+};
+
 export type PdfTextLocation = {
   pageNumber: number;
   x: number;
@@ -33,6 +58,12 @@ export type Difference = {
   inlineParts?: DifferenceTextPart[];
   beforeLocations?: PdfTextLocation[];
   afterLocations?: PdfTextLocation[];
+  ignoredReason?: string;
+};
+
+export type ComparisonResult = {
+  differences: Difference[];
+  ignoredDifferences: Difference[];
 };
 
 export type ExtractionStatus = 'not-extracted' | 'extracting' | 'extracted' | 'failed';
