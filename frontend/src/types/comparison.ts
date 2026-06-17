@@ -7,6 +7,15 @@ export type DifferenceTextPart = {
   text: string;
 };
 
+export type PdfTextLocation = {
+  pageNumber: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  text: string;
+};
+
 export type Difference = {
   id: string;
   type: DifferenceType;
@@ -22,13 +31,18 @@ export type Difference = {
   beforeParts?: DifferenceTextPart[];
   afterParts?: DifferenceTextPart[];
   inlineParts?: DifferenceTextPart[];
+  beforeLocations?: PdfTextLocation[];
+  afterLocations?: PdfTextLocation[];
 };
 
 export type ExtractionStatus = 'not-extracted' | 'extracting' | 'extracted' | 'failed';
 
 export type ExtractedPdfPage = {
   pageNumber: number;
+  pageWidth: number;
+  pageHeight: number;
   text: string;
+  locations: PdfTextLocation[];
 };
 
 export type PdfExtractionState = {

@@ -4,7 +4,12 @@ import DifferencePanel from './DifferencePanel';
 import PDFExtractionDebugView from './PDFExtractionDebugView';
 import PDFViewer from './PDFViewer';
 import { generateDifferences } from '../services/diffService';
-import type { Difference, ExtractedPdfPage, PdfExtractionState } from '../types/comparison';
+import type {
+  Difference,
+  ExtractedPdfPage,
+  PdfExtractionState,
+  PdfTextLocation,
+} from '../types/comparison';
 
 const initialExtractionState: PdfExtractionState = {
   status: 'not-extracted',
@@ -18,22 +23,19 @@ const failedExtractionState: PdfExtractionState = {
   pageCount: null,
 };
 
-type PositionedTextItem = {
-  text: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
+type PositionedTextItem = PdfTextLocation;
 
 type ExtractedLine = {
   text: string;
   y: number;
   pageHeight: number;
+  items: PositionedTextItem[];
 };
 
 type ExtractedPageLines = {
   pageNumber: number;
+  pageWidth: number;
+  pageHeight: number;
   lines: ExtractedLine[];
 };
 
@@ -95,7 +97,7 @@ function shouldIgnoreLine(line: ExtractedLine, repeatedBoilerplateKeys: Set<stri
   return isPageNumberLine(key) || isPrintDateLine(key) || repeatedBoilerplateKeys.has(key);
 }
 
-function getPositionedTextItem(item: PdfTextContentItem): PositionedTextItem | null {
+function getPositionedTextItem(item: PdfTextContentItem, pageNumber: number): PositionedTextItem | null {
   if (item.str === undefined || item.transform === undefined) {
     return null;
   }
@@ -107,6 +109,7 @@ function getPositionedTextItem(item: PdfTextContentItem): PositionedTextItem | n
   }
 
   return {
+    pageNumber,
     text,
     x: item.transform[4] ?? 0,
     y: item.transform[5] ?? 0,
@@ -141,6 +144,7 @@ function groupItemsIntoLines(items: PositionedTextItem[], pageHeight: number): E
         text,
         y,
         pageHeight,
+        items: sortedLine,
       };
     })
     .filter((line) => line.text.length > 0)
@@ -176,11 +180,16 @@ function removeBoilerplateLines(pages: ExtractedPageLines[]): ExtractedPdfPage[]
 
   return pages.map((page) => ({
     pageNumber: page.pageNumber,
+    pageWidth: page.pageWidth,
+    pageHeight: page.pageHeight,
     text: page.lines
       .filter((line) => !shouldIgnoreLine(line, repeatedBoilerplateKeys))
       .map((line) => line.text)
       .join(' ')
       .trim(),
+    locations: page.lines
+      .filter((line) => !shouldIgnoreLine(line, repeatedBoilerplateKeys))
+      .flatMap((line) => line.items),
   }));
 }
 
@@ -194,11 +203,13 @@ async function extractPdfText(file: File): Promise<ExtractedPdfPage[]> {
     const viewport = page.getViewport({ scale: 1 });
     const textContent = await page.getTextContent();
     const positionedItems = textContent.items
-      .map((item) => getPositionedTextItem(item as PdfTextContentItem))
+      .map((item) => getPositionedTextItem(item as PdfTextContentItem, pageIndex))
       .filter((item): item is PositionedTextItem => item !== null);
 
     pages.push({
       pageNumber: pageIndex,
+      pageWidth: viewport.width,
+      pageHeight: viewport.height,
       lines: groupItemsIntoLines(positionedItems, viewport.height),
     });
   }

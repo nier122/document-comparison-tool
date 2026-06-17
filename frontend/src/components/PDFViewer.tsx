@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Document, Page } from 'react-pdf';
 import PDFUploadPanel from './PDFUploadPanel';
-import type { Difference, DifferenceTextPart, PdfExtractionState } from '../types/comparison';
+import type { Difference, PdfExtractionState, PdfTextLocation } from '../types/comparison';
 
 type PDFViewerProps = {
   title: string;
@@ -12,10 +12,6 @@ type PDFViewerProps = {
   targetPage?: number;
   navigationRequest?: number;
   onFileSelect: (file: File | null) => void;
-};
-
-type TextRendererParams = {
-  str: string;
 };
 
 function formatExtractionStatus(status: PdfExtractionState['status']) {
@@ -31,35 +27,7 @@ function formatExtractionStatus(status: PdfExtractionState['status']) {
   }
 }
 
-function escapeHtml(text: string) {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function escapeRegExp(text: string) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function splitHighlightText(text: string | undefined) {
-  if (text === undefined) {
-    return [];
-  }
-
-  return text.match(/\S+/g) ?? [];
-}
-
-function getChangedParts(
-  parts: DifferenceTextPart[] | undefined,
-  changedType: DifferenceTextPart['type'],
-) {
-  return parts?.filter((part) => part.type === changedType).map((part) => part.text) ?? [];
-}
-
-function getHighlightTerms(
+function getHighlightLocations(
   selectedDifference: Difference | null,
   highlightSide: PDFViewerProps['highlightSide'],
   pageNumber: number,
@@ -68,55 +36,16 @@ function getHighlightTerms(
     return [];
   }
 
-  const targetPage = highlightSide === 'before' ? selectedDifference.pageA : selectedDifference.pageB;
-
-  if (targetPage !== pageNumber) {
-    return [];
-  }
-
-  const changedText =
+  const locations =
     highlightSide === 'before'
-      ? selectedDifference.changedTextBefore ?? selectedDifference.textBefore
-      : selectedDifference.changedTextAfter ?? selectedDifference.textAfter;
-  const changedParts =
-    highlightSide === 'before'
-      ? getChangedParts(selectedDifference.beforeParts, 'deleted')
-      : getChangedParts(selectedDifference.afterParts, 'added');
-  const terms = new Set([...changedParts, changedText, ...splitHighlightText(changedText)]);
+      ? selectedDifference.beforeLocations ?? []
+      : selectedDifference.afterLocations ?? [];
 
-  return [...terms]
-    .map((term) => term?.trim())
-    .filter((term): term is string => term !== undefined && term.length > 0)
-    .sort((termA, termB) => termB.length - termA.length);
+  return locations.filter((location) => location.pageNumber === pageNumber);
 }
 
-function highlightTextLayerValue(
-  text: string,
-  highlightTerms: string[],
-  highlightSide: PDFViewerProps['highlightSide'],
-) {
-  if (highlightTerms.length === 0) {
-    return escapeHtml(text);
-  }
-
-  const highlightColor = highlightSide === 'before' ? 'rgba(248,113,113,0.55)' : 'rgba(74,222,128,0.55)';
-  const textColor = highlightSide === 'before' ? '#7f1d1d' : '#14532d';
-  const pattern = new RegExp(`(${highlightTerms.map(escapeRegExp).join('|')})`, 'gi');
-  const parts = text.split(pattern);
-
-  return parts
-    .map((part) => {
-      const isHighlighted = highlightTerms.some(
-        (term) => term.localeCompare(part, undefined, { sensitivity: 'accent' }) === 0,
-      );
-
-      if (!isHighlighted) {
-        return escapeHtml(part);
-      }
-
-      return `<mark style="background:${highlightColor};color:${textColor};padding:0 1px;">${escapeHtml(part)}</mark>`;
-    })
-    .join('');
+function getLocationTop(location: PdfTextLocation, sourcePageHeight: number, scale: number) {
+  return (sourcePageHeight - location.y - location.height) * scale;
 }
 
 function PDFViewer({
@@ -136,6 +65,7 @@ function PDFViewer({
   const [availablePageWidth, setAvailablePageWidth] = useState(640);
   const viewerRef = useRef<HTMLElement | null>(null);
   const pageAreaRef = useRef<HTMLDivElement | null>(null);
+  const firstHighlightRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setNumPages(null);
@@ -210,14 +140,37 @@ function PDFViewer({
 
   const pageCount = extraction.pageCount ?? numPages;
   const pageWidth = fitToWidth ? availablePageWidth : Math.round(640 * zoom);
-  const highlightTerms = useMemo(
-    () => getHighlightTerms(selectedDifference, highlightSide, pageNumber),
+  const currentExtractedPage = extraction.pages.find((page) => page.pageNumber === pageNumber);
+  const sourcePageWidth = currentExtractedPage?.pageWidth ?? pageWidth;
+  const sourcePageHeight = currentExtractedPage?.pageHeight ?? pageWidth * 1.3;
+  const coordinateScale = pageWidth / sourcePageWidth;
+  const highlightLocations = useMemo(
+    () => getHighlightLocations(selectedDifference, highlightSide, pageNumber),
     [highlightSide, pageNumber, selectedDifference],
   );
+  const highlightColor =
+    highlightSide === 'before' ? 'rgba(248, 113, 113, 0.36)' : 'rgba(74, 222, 128, 0.36)';
+  const highlightBorder = highlightSide === 'before' ? '#dc2626' : '#16a34a';
 
-  function renderHighlightedTextLayer({ str }: TextRendererParams) {
-    return highlightTextLayerValue(str, highlightTerms, highlightSide);
-  }
+  useEffect(() => {
+    const firstLocation = highlightLocations[0];
+    const pageArea = pageAreaRef.current;
+
+    if (firstLocation === undefined || pageArea === null) {
+      return;
+    }
+
+    const nextTop = Math.max(getLocationTop(firstLocation, sourcePageHeight, coordinateScale) - 80, 0);
+    const nextLeft = Math.max(firstLocation.x * coordinateScale - 80, 0);
+
+    pageArea.scrollTo({
+      top: nextTop,
+      left: nextLeft,
+      behavior: 'smooth',
+    });
+
+    firstHighlightRef.current?.focus({ preventScroll: true });
+  }, [coordinateScale, highlightLocations, navigationRequest, sourcePageHeight]);
 
   return (
     <section
@@ -287,14 +240,42 @@ function PDFViewer({
             <Document file={file} onLoadSuccess={handleLoadSuccess}>
               <div
                 data-page-number={pageNumber}
-                data-highlight-layer={highlightTerms.length > 0 ? highlightSide : 'none'}
+                data-highlight-layer={highlightLocations.length > 0 ? highlightSide : 'none'}
                 style={{ display: 'inline-block', position: 'relative' }}
               >
-                <Page
-                  customTextRenderer={renderHighlightedTextLayer}
-                  pageNumber={pageNumber}
-                  width={pageWidth}
-                />
+                <Page pageNumber={pageNumber} width={pageWidth} />
+                {highlightLocations.map((location, index) => {
+                  const top = getLocationTop(location, sourcePageHeight, coordinateScale);
+                  const left = location.x * coordinateScale;
+                  const width = Math.max(location.width * coordinateScale, 6);
+                  const height = Math.max(location.height * coordinateScale, 8);
+
+                  return (
+                    <div
+                      aria-label={`${highlightSide === 'before' ? 'Removed' : 'Added'} text: ${location.text}`}
+                      key={`${location.pageNumber}-${location.x}-${location.y}-${location.text}-${index}`}
+                      ref={index === 0 ? firstHighlightRef : undefined}
+                      tabIndex={index === 0 ? -1 : undefined}
+                      title={location.text}
+                      style={{
+                        background: highlightColor,
+                        border: `2px solid ${highlightBorder}`,
+                        boxShadow:
+                          index === 0
+                            ? `0 0 0 3px ${highlightSide === 'before' ? 'rgba(220, 38, 38, 0.22)' : 'rgba(22, 163, 74, 0.22)'}`
+                            : 'none',
+                        left,
+                        minHeight: '8px',
+                        pointerEvents: 'none',
+                        position: 'absolute',
+                        top,
+                        width,
+                        height,
+                        zIndex: 4,
+                      }}
+                    />
+                  );
+                })}
               </div>
             </Document>
           </div>

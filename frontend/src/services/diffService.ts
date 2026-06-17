@@ -1,10 +1,16 @@
-import type { Difference, DifferenceTextPart, ExtractedPdfPage } from '../types/comparison';
+import type {
+  Difference,
+  DifferenceTextPart,
+  ExtractedPdfPage,
+  PdfTextLocation,
+} from '../types/comparison';
 
 type TextBlock = {
   pageNumber: number;
   text: string;
   key: string;
   tokens: string[];
+  locations: PdfTextLocation[];
 };
 
 type FieldDefinition = {
@@ -21,6 +27,7 @@ type ExtractedField = {
   normalizedValue: string;
   pageNumber: number;
   sourceText: string;
+  locations: PdfTextLocation[];
 };
 
 type DiffOperation =
@@ -109,6 +116,49 @@ function tokenizeKey(key: string) {
   return key.split(' ');
 }
 
+function getLocationKey(location: PdfTextLocation) {
+  return createComparisonKey(location.text);
+}
+
+function dedupeLocations(locations: PdfTextLocation[]) {
+  const seenLocations = new Set<string>();
+  const uniqueLocations: PdfTextLocation[] = [];
+
+  locations.forEach((location) => {
+    const key = [
+      location.pageNumber,
+      Math.round(location.x * 100) / 100,
+      Math.round(location.y * 100) / 100,
+      location.text,
+    ].join('|');
+
+    if (seenLocations.has(key)) {
+      return;
+    }
+
+    seenLocations.add(key);
+    uniqueLocations.push(location);
+  });
+
+  return uniqueLocations;
+}
+
+function findLocationsForText(locations: PdfTextLocation[], text: string) {
+  const textTokens = new Set(tokenizeKey(createComparisonKey(text)));
+
+  if (textTokens.size === 0) {
+    return [];
+  }
+
+  return dedupeLocations(
+    locations.filter((location) => {
+      const locationTokens = tokenizeKey(getLocationKey(location));
+
+      return locationTokens.some((token) => textTokens.has(token));
+    }),
+  );
+}
+
 function isMeaningfulKey(key: string) {
   return key.replace(/\s/g, '').length >= MIN_MEANINGFUL_KEY_LENGTH;
 }
@@ -157,6 +207,7 @@ function extractStructuredFields(pages: ExtractedPdfPage[]) {
           normalizedValue: normalizeFieldValue(value),
           pageNumber: page.pageNumber,
           sourceText,
+          locations: findLocationsForText(page.locations, value),
         });
       }
     });
@@ -183,6 +234,7 @@ function createFieldDifference(
       pageB: fieldB?.pageNumber,
       textAfter: fieldB?.value,
       changedTextAfter: fieldB?.value,
+      afterLocations: fieldB?.locations,
       afterParts: fieldB === undefined ? undefined : [{ type: 'added', text: fieldB.value }],
       inlineParts: fieldB === undefined ? undefined : [{ type: 'added', text: fieldB.value }],
     };
@@ -198,6 +250,7 @@ function createFieldDifference(
       pageA: fieldA.pageNumber,
       textBefore: fieldA.value,
       changedTextBefore: fieldA.value,
+      beforeLocations: fieldA.locations,
       beforeParts: [{ type: 'deleted', text: fieldA.value }],
       inlineParts: [{ type: 'deleted', text: fieldA.value }],
     };
@@ -215,6 +268,8 @@ function createFieldDifference(
     textAfter: fieldB.value,
     changedTextBefore: fieldA.value,
     changedTextAfter: fieldB.value,
+    beforeLocations: fieldA.locations,
+    afterLocations: fieldB.locations,
     beforeParts: [{ type: 'deleted', text: fieldA.value }],
     afterParts: [{ type: 'added', text: fieldB.value }],
     inlineParts: [
@@ -284,6 +339,7 @@ function createBlocks(pages: ExtractedPdfPage[]) {
           text,
           key,
           tokens: tokenizeKey(key),
+          locations: findLocationsForText(page.locations, text),
         };
       })
       .filter((block) => isMeaningfulKey(block.key)),
@@ -377,6 +433,10 @@ function getTokenSimilarity(blocksA: TextBlock[], blocksB: TextBlock[]) {
 
 function joinBlockText(blocks: TextBlock[]) {
   return blocks.map((block) => block.text).join(' ');
+}
+
+function joinBlockLocations(blocks: TextBlock[]) {
+  return dedupeLocations(blocks.flatMap((block) => block.locations));
 }
 
 function tokenizeText(text: string) {
@@ -489,6 +549,8 @@ function createAddedDifference(id: number, blocks: TextBlock[]): Difference {
     type: 'added',
     pageB: getFirstPage(blocks),
     textAfter: joinBlockText(blocks),
+    changedTextAfter: joinBlockText(blocks),
+    afterLocations: joinBlockLocations(blocks),
   };
 }
 
@@ -498,6 +560,8 @@ function createDeletedDifference(id: number, blocks: TextBlock[]): Difference {
     type: 'deleted',
     pageA: getFirstPage(blocks),
     textBefore: joinBlockText(blocks),
+    changedTextBefore: joinBlockText(blocks),
+    beforeLocations: joinBlockLocations(blocks),
   };
 }
 
@@ -509,6 +573,10 @@ function createModifiedDifference(
   const textBefore = joinBlockText(deletedBlocks);
   const textAfter = joinBlockText(addedBlocks);
   const wordDiff = createWordLevelDiff(textBefore, textAfter);
+  const deletedLocations = joinBlockLocations(deletedBlocks);
+  const addedLocations = joinBlockLocations(addedBlocks);
+  const beforeLocations = findLocationsForText(deletedLocations, wordDiff.changedTextBefore);
+  const afterLocations = findLocationsForText(addedLocations, wordDiff.changedTextAfter);
 
   return {
     id: `difference-${id}-modified`,
@@ -517,6 +585,8 @@ function createModifiedDifference(
     pageB: getFirstPage(addedBlocks),
     textBefore,
     textAfter,
+    beforeLocations: beforeLocations.length > 0 ? beforeLocations : deletedLocations,
+    afterLocations: afterLocations.length > 0 ? afterLocations : addedLocations,
     ...wordDiff,
   };
 }
