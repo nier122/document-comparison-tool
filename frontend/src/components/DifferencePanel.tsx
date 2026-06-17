@@ -42,7 +42,7 @@ function getDifferenceTone(type: Difference['type']) {
   switch (type) {
     case 'added':
       return {
-        background: '#ecfdf5',
+        background: '#f0fdf4',
         border: '#10b981',
       };
     case 'deleted':
@@ -56,14 +56,6 @@ function getDifferenceTone(type: Difference['type']) {
         border: '#f59e0b',
       };
   }
-}
-
-function renderText(text: string | undefined, emptyLabel: string) {
-  if (text === undefined || text.length === 0) {
-    return <span style={{ color: '#6b7280' }}>{emptyLabel}</span>;
-  }
-
-  return text;
 }
 
 function getPartStyle(type: DifferenceTextPart['type']) {
@@ -90,21 +82,31 @@ function getPartStyle(type: DifferenceTextPart['type']) {
   }
 }
 
-function renderTextParts(
-  parts: DifferenceTextPart[] | undefined,
-  fallbackText: string | undefined,
-  emptyLabel: string,
-) {
-  if (parts === undefined || parts.length === 0) {
-    return renderText(fallbackText, emptyLabel);
+function getCompactContext(text: string) {
+  const words = text.match(/\S+/g) ?? [];
+
+  if (words.length <= 12) {
+    return text;
   }
 
-  return parts.map((part, index) => (
-    <span key={`${part.type}-${index}`} style={getPartStyle(part.type)}>
-      {part.text}
-      {index < parts.length - 1 ? ' ' : ''}
-    </span>
-  ));
+  return `${words.slice(0, 6).join(' ')} ... ${words.slice(-6).join(' ')}`;
+}
+
+function renderCompactParts(parts: DifferenceTextPart[] | undefined) {
+  if (parts === undefined || parts.length === 0) {
+    return <span style={{ color: '#6b7280' }}>No word-level details available</span>;
+  }
+
+  return parts.map((part, index) => {
+    const text = part.type === 'unchanged' ? getCompactContext(part.text) : part.text;
+
+    return (
+      <span key={`${part.type}-${index}`} style={getPartStyle(part.type)}>
+        {text}
+        {index < parts.length - 1 ? ' ' : ''}
+      </span>
+    );
+  });
 }
 
 function renderInlineDifference(difference: Difference) {
@@ -123,8 +125,34 @@ function renderInlineDifference(difference: Difference) {
     >
       <strong>Changed words</strong>
       <p style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }}>
-        {renderTextParts(difference.inlineParts, undefined, 'No word-level changes found')}
+        {renderCompactParts(difference.inlineParts)}
       </p>
+    </div>
+  );
+}
+
+function renderLegend() {
+  return (
+    <div
+      aria-label="Highlight legend"
+      style={{
+        background: '#f9fafb',
+        border: '1px solid #d1d5db',
+        display: 'grid',
+        gap: '6px',
+        marginBottom: '12px',
+        padding: '10px',
+      }}
+    >
+      <strong>Legend</strong>
+      <span>
+        <mark style={{ background: '#fecaca', color: '#7f1d1d', padding: '0 4px' }}>Red</mark>{' '}
+        = Before / removed text from PDF A
+      </span>
+      <span>
+        <mark style={{ background: '#bbf7d0', color: '#14532d', padding: '0 4px' }}>Green</mark>{' '}
+        = After / added text from PDF B
+      </span>
     </div>
   );
 }
@@ -207,97 +235,66 @@ function DifferencePanel({
       {isCollapsed ? null : differences.length === 0 ? (
         <p>No differences detected.</p>
       ) : (
-        <ul style={{ listStyle: 'none', margin: 0, overflow: 'auto', padding: 0 }}>
-          {differences.map((difference) => {
-            const isSelected = difference.id === selectedDifferenceId;
-            const tone = getDifferenceTone(difference.type);
+        <>
+          {renderLegend()}
+          <ul style={{ listStyle: 'none', margin: 0, overflow: 'auto', padding: 0 }}>
+            {differences.map((difference) => {
+              const isSelected = difference.id === selectedDifferenceId;
+              const tone = getDifferenceTone(difference.type);
 
-            return (
-              <li key={difference.id} style={{ marginBottom: '14px' }}>
-                <article
-                  aria-current={isSelected ? 'true' : undefined}
-                  onClick={() => onDifferenceSelect?.(difference)}
-                  style={{
-                    border: isSelected ? '2px solid #4f46e5' : `1px solid ${tone.border}`,
-                    background: isSelected ? '#eef2ff' : '#fff',
-                    cursor: 'pointer',
-                    padding: '12px',
-                  }}
-                >
-                  <div
+              return (
+                <li key={difference.id} style={{ marginBottom: '14px' }}>
+                  <article
+                    aria-current={isSelected ? 'true' : undefined}
+                    onClick={() => onDifferenceSelect?.(difference)}
                     style={{
-                      alignItems: 'center',
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      gap: '8px',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    <div>
-                      <strong>{formatDifferenceType(difference.type)}</strong>
-                      <span style={{ color: '#4b5563', marginLeft: '8px' }}>
-                        {getPageLabel(difference)}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onDifferenceSelect?.(difference);
-                      }}
-                    >
-                      Go To Difference
-                    </button>
-                  </div>
-
-                  {difference.type === 'modified' ? renderInlineDifference(difference) : null}
-
-                  <div
-                    style={{
-                      display: 'grid',
-                      gap: '12px',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-                      marginTop: '12px',
+                      border: isSelected ? '2px solid #4f46e5' : `1px solid ${tone.border}`,
+                      background: isSelected ? '#eef2ff' : '#fff',
+                      cursor: 'pointer',
+                      padding: '12px',
                     }}
                   >
                     <div
                       style={{
-                        background: difference.type === 'added' ? '#f9fafb' : '#fff',
-                        border: '1px solid #d1d5db',
-                        padding: '10px',
+                        alignItems: 'center',
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: '8px',
+                        justifyContent: 'space-between',
                       }}
                     >
-                      <strong>Before</strong>
-                      <p style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }}>
-                        {renderTextParts(
-                          difference.beforeParts,
-                          difference.textBefore,
-                          'No matching text in PDF A',
-                        )}
-                      </p>
+                      <div>
+                        <strong>{formatDifferenceType(difference.type)}</strong>
+                        <span style={{ color: '#4b5563', marginLeft: '8px' }}>
+                          {getPageLabel(difference)}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onDifferenceSelect?.(difference);
+                        }}
+                      >
+                        Go To Difference
+                      </button>
                     </div>
-                    <div
-                      style={{
-                        background: tone.background,
-                        border: `1px solid ${tone.border}`,
-                        padding: '10px',
-                      }}
-                    >
-                      <strong>After</strong>
-                      <p style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }}>
-                        {renderTextParts(
-                          difference.afterParts,
-                          difference.textAfter,
-                          'No matching text in PDF B',
-                        )}
+
+                    {difference.type === 'modified' ? (
+                      renderInlineDifference(difference)
+                    ) : (
+                      <p style={{ margin: '12px 0 0', whiteSpace: 'pre-wrap' }}>
+                        {difference.type === 'deleted'
+                          ? difference.textBefore
+                          : difference.textAfter}
                       </p>
-                    </div>
-                  </div>
-                </article>
-              </li>
-            );
-          })}
-        </ul>
+                    )}
+                  </article>
+                </li>
+              );
+            })}
+          </ul>
+        </>
       )}
     </section>
   );

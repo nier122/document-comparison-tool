@@ -1,15 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Document, Page } from 'react-pdf';
 import PDFUploadPanel from './PDFUploadPanel';
-import type { PdfExtractionState } from '../types/comparison';
+import type { Difference, DifferenceTextPart, PdfExtractionState } from '../types/comparison';
 
 type PDFViewerProps = {
   title: string;
   file: File | null;
   extraction: PdfExtractionState;
+  highlightSide: 'before' | 'after';
+  selectedDifference: Difference | null;
   targetPage?: number;
   navigationRequest?: number;
   onFileSelect: (file: File | null) => void;
+};
+
+type TextRendererParams = {
+  str: string;
 };
 
 function formatExtractionStatus(status: PdfExtractionState['status']) {
@@ -25,10 +31,100 @@ function formatExtractionStatus(status: PdfExtractionState['status']) {
   }
 }
 
+function escapeHtml(text: string) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function escapeRegExp(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function splitHighlightText(text: string | undefined) {
+  if (text === undefined) {
+    return [];
+  }
+
+  return text.match(/\S+/g) ?? [];
+}
+
+function getChangedParts(
+  parts: DifferenceTextPart[] | undefined,
+  changedType: DifferenceTextPart['type'],
+) {
+  return parts?.filter((part) => part.type === changedType).map((part) => part.text) ?? [];
+}
+
+function getHighlightTerms(
+  selectedDifference: Difference | null,
+  highlightSide: PDFViewerProps['highlightSide'],
+  pageNumber: number,
+) {
+  if (selectedDifference === null) {
+    return [];
+  }
+
+  const targetPage = highlightSide === 'before' ? selectedDifference.pageA : selectedDifference.pageB;
+
+  if (targetPage !== pageNumber) {
+    return [];
+  }
+
+  const changedText =
+    highlightSide === 'before'
+      ? selectedDifference.changedTextBefore ?? selectedDifference.textBefore
+      : selectedDifference.changedTextAfter ?? selectedDifference.textAfter;
+  const changedParts =
+    highlightSide === 'before'
+      ? getChangedParts(selectedDifference.beforeParts, 'deleted')
+      : getChangedParts(selectedDifference.afterParts, 'added');
+  const terms = new Set([...changedParts, changedText, ...splitHighlightText(changedText)]);
+
+  return [...terms]
+    .map((term) => term?.trim())
+    .filter((term): term is string => term !== undefined && term.length > 0)
+    .sort((termA, termB) => termB.length - termA.length);
+}
+
+function highlightTextLayerValue(
+  text: string,
+  highlightTerms: string[],
+  highlightSide: PDFViewerProps['highlightSide'],
+) {
+  if (highlightTerms.length === 0) {
+    return escapeHtml(text);
+  }
+
+  const highlightColor = highlightSide === 'before' ? 'rgba(248,113,113,0.55)' : 'rgba(74,222,128,0.55)';
+  const textColor = highlightSide === 'before' ? '#7f1d1d' : '#14532d';
+  const pattern = new RegExp(`(${highlightTerms.map(escapeRegExp).join('|')})`, 'gi');
+  const parts = text.split(pattern);
+
+  return parts
+    .map((part) => {
+      const isHighlighted = highlightTerms.some(
+        (term) => term.localeCompare(part, undefined, { sensitivity: 'accent' }) === 0,
+      );
+
+      if (!isHighlighted) {
+        return escapeHtml(part);
+      }
+
+      return `<mark style="background:${highlightColor};color:${textColor};padding:0 1px;">${escapeHtml(part)}</mark>`;
+    })
+    .join('');
+}
+
 function PDFViewer({
   title,
   file,
   extraction,
+  highlightSide,
+  selectedDifference,
   targetPage,
   navigationRequest,
   onFileSelect,
@@ -114,6 +210,14 @@ function PDFViewer({
 
   const pageCount = extraction.pageCount ?? numPages;
   const pageWidth = fitToWidth ? availablePageWidth : Math.round(640 * zoom);
+  const highlightTerms = useMemo(
+    () => getHighlightTerms(selectedDifference, highlightSide, pageNumber),
+    [highlightSide, pageNumber, selectedDifference],
+  );
+
+  function renderHighlightedTextLayer({ str }: TextRendererParams) {
+    return highlightTextLayerValue(str, highlightTerms, highlightSide);
+  }
 
   return (
     <section
@@ -183,10 +287,14 @@ function PDFViewer({
             <Document file={file} onLoadSuccess={handleLoadSuccess}>
               <div
                 data-page-number={pageNumber}
-                data-highlight-layer="pending"
+                data-highlight-layer={highlightTerms.length > 0 ? highlightSide : 'none'}
                 style={{ display: 'inline-block', position: 'relative' }}
               >
-                <Page pageNumber={pageNumber} width={pageWidth} />
+                <Page
+                  customTextRenderer={renderHighlightedTextLayer}
+                  pageNumber={pageNumber}
+                  width={pageWidth}
+                />
               </div>
             </Document>
           </div>

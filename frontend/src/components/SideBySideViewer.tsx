@@ -356,6 +356,8 @@ function SideBySideViewer() {
             title="PDF A"
             file={pdfA}
             extraction={pdfAExtraction}
+            highlightSide="before"
+            selectedDifference={selectedDifference}
             targetPage={selectedDifference?.pageA}
             navigationRequest={navigationRequest}
             onFileSelect={setPdfA}
@@ -364,6 +366,8 @@ function SideBySideViewer() {
             title="PDF B"
             file={pdfB}
             extraction={pdfBExtraction}
+            highlightSide="after"
+            selectedDifference={selectedDifference}
             targetPage={selectedDifference?.pageB}
             navigationRequest={navigationRequest}
             onFileSelect={setPdfB}
