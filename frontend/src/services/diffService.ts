@@ -48,6 +48,11 @@ type TextLine = {
   locations: PdfTextLocation[];
 };
 
+type BlockUnit = {
+  text: string;
+  locations: PdfTextLocation[];
+};
+
 type DiffOperation =
   | {
       type: 'equal';
@@ -66,6 +71,7 @@ type DiffOperation =
 const MIN_MEANINGFUL_KEY_LENGTH = 3;
 const MODIFIED_SIMILARITY_THRESHOLD = 0.35;
 const TABLE_LINE_Y_TOLERANCE = 3;
+const MAX_MULTI_WORD_FIELD_VALUE_LOCATIONS = 4;
 const FIELD_DEFINITIONS: FieldDefinition[] = [
   {
     key: 'poNumber',
@@ -171,12 +177,7 @@ function dedupeLocations(locations: PdfTextLocation[]) {
   const uniqueLocations: PdfTextLocation[] = [];
 
   locations.forEach((location) => {
-    const key = [
-      location.pageNumber,
-      Math.round(location.x * 100) / 100,
-      Math.round(location.y * 100) / 100,
-      location.text,
-    ].join('|');
+    const key = getLocationIdentity(location);
 
     if (seenLocations.has(key)) {
       return;
@@ -187,6 +188,15 @@ function dedupeLocations(locations: PdfTextLocation[]) {
   });
 
   return uniqueLocations;
+}
+
+function getLocationIdentity(location: PdfTextLocation) {
+  return [
+    location.pageNumber,
+    Math.round(location.x * 100) / 100,
+    Math.round(location.y * 100) / 100,
+    location.text,
+  ].join('|');
 }
 
 function findLocationsForText(locations: PdfTextLocation[], text: string) {
@@ -254,6 +264,61 @@ function getCanonicalFieldDefinition(label: string) {
       return labelKey === aliasKey || labelKey.endsWith(` ${aliasKey}`) || aliasKey.endsWith(` ${labelKey}`);
     }),
   );
+}
+
+function doesValueMatchField(fieldDefinition: FieldDefinition, value: string) {
+  return new RegExp(`^${fieldDefinition.valuePattern}$`, 'i').test(normalizeDisplayText(value));
+}
+
+function isMultiWordField(fieldDefinition: FieldDefinition) {
+  return fieldDefinition.key === 'customer' || fieldDefinition.key === 'supplier';
+}
+
+function getValueLocationsAfterLabel(
+  fieldDefinition: FieldDefinition,
+  locations: PdfTextLocation[],
+  valueStartIndex: number,
+) {
+  const valueLocations: PdfTextLocation[] = [];
+
+  for (let locationIndex = valueStartIndex; locationIndex < locations.length; locationIndex += 1) {
+    const location = locations[locationIndex];
+    const adjacentLabelText = normalizeDisplayText(
+      [location.text, locations[locationIndex + 1]?.text].filter(Boolean).join(' '),
+    );
+
+    if (
+      valueLocations.length > 0 &&
+      (getCanonicalFieldDefinition(location.text) !== undefined ||
+        getCanonicalFieldDefinition(adjacentLabelText) !== undefined)
+    ) {
+      break;
+    }
+
+    const nextValueLocations = [...valueLocations, location];
+    const singleValue = normalizeDisplayText(location.text);
+    const combinedValue = normalizeDisplayText(nextValueLocations.map((valueLocation) => valueLocation.text).join(' '));
+
+    if (doesValueMatchField(fieldDefinition, singleValue)) {
+      return [location];
+    }
+
+    if (doesValueMatchField(fieldDefinition, combinedValue)) {
+      return nextValueLocations;
+    }
+
+    if (!isMultiWordField(fieldDefinition)) {
+      break;
+    }
+
+    valueLocations.push(location);
+
+    if (valueLocations.length >= MAX_MULTI_WORD_FIELD_VALUE_LOCATIONS) {
+      break;
+    }
+  }
+
+  return valueLocations;
 }
 
 function addFieldCandidate(candidates: FieldCandidate[], candidate: FieldCandidate) {
@@ -331,7 +396,11 @@ function extractRowFieldCandidates(page: ExtractedPdfPage, line: TextLine) {
       return;
     }
 
-    const valueLocations = line.locations.slice(valueStartIndex);
+    const valueLocations = getValueLocationsAfterLabel(fieldDefinition, line.locations, valueStartIndex);
+
+    if (valueLocations.length === 0) {
+      return;
+    }
 
     addFieldCandidate(candidates, {
       key: fieldDefinition.key,
@@ -568,6 +637,10 @@ function compareStructuredFields(
 }
 
 function removeFieldSourcesFromPages(pages: ExtractedPdfPage[], fields: Map<string, ExtractedField>) {
+  const fieldLocationKeys = new Set(
+    [...fields.values()].flatMap((field) => field.locations.map((location) => getLocationIdentity(location))),
+  );
+
   return pages.map((page) => {
     const pageFields = [...fields.values()].filter((field) => field.pageNumber === page.pageNumber);
     let text = page.text;
@@ -579,11 +652,12 @@ function removeFieldSourcesFromPages(pages: ExtractedPdfPage[], fields: Map<stri
     return {
       ...page,
       text: normalizeDisplayText(text),
+      locations: page.locations.filter((location) => !fieldLocationKeys.has(getLocationIdentity(location))),
     };
   });
 }
 
-function splitIntoBlocks(text: string) {
+function splitIntoBlocks(text: string): string[] {
   const normalized = normalizeDisplayText(text);
 
   if (normalized.length === 0) {
@@ -595,18 +669,51 @@ function splitIntoBlocks(text: string) {
   return sentenceMatches.map((block) => normalizeDisplayText(block)).filter(Boolean);
 }
 
+function hasCellLikeSpacing(line: TextLine) {
+  if (line.locations.length < 3) {
+    return false;
+  }
+
+  return line.locations.some((location, locationIndex) => {
+    const nextLocation = line.locations[locationIndex + 1];
+
+    if (nextLocation === undefined) {
+      return false;
+    }
+
+    return nextLocation.x - (location.x + location.width) > 18;
+  });
+}
+
+function splitLineIntoBlockUnits(line: TextLine): BlockUnit[] {
+  if (hasCellLikeSpacing(line)) {
+    return line.locations
+      .map((location) => ({
+        text: normalizeDisplayText(location.text),
+        locations: [location],
+      }))
+      .filter((unit) => unit.text.length > 0);
+  }
+
+  return splitIntoBlocks(line.text).map((text) => ({
+    text,
+    locations: findLocationsForText(line.locations, text),
+  }));
+}
+
 function createBlocks(pages: ExtractedPdfPage[]) {
   return pages.flatMap((page) =>
-    splitIntoBlocks(page.text)
-      .map((text) => {
-        const key = createComparisonKey(text);
+    groupLocationsIntoLines(page)
+      .flatMap(splitLineIntoBlockUnits)
+      .map((unit) => {
+        const key = createComparisonKey(unit.text);
 
         return {
           pageNumber: page.pageNumber,
-          text,
+          text: unit.text,
           key,
           tokens: tokenizeKey(key),
-          locations: findLocationsForText(page.locations, text),
+          locations: unit.locations,
         };
       })
       .filter((block) => isMeaningfulKey(block.key)),
