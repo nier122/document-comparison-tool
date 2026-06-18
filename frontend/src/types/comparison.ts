@@ -7,15 +7,12 @@ export type DifferenceTextPart = {
   text: string;
 };
 
-export type ComparisonFieldKey =
-  | 'poNumber'
-  | 'invoiceNumber'
-  | 'date'
-  | 'quantity'
-  | 'amount'
-  | 'total'
-  | 'itemDescription'
-  | 'remarks';
+export type ImportantFieldSetting = {
+  key: string;
+  label: string;
+  enabled: boolean;
+  isCustom: boolean;
+};
 
 export type IgnoreRuleKey =
   | 'pageNumbers'
@@ -27,7 +24,7 @@ export type IgnoreRuleKey =
   | 'boilerplateTerms';
 
 export type ComparisonSettings = {
-  importantFields: Record<ComparisonFieldKey, boolean>;
+  importantFields: ImportantFieldSetting[];
   ignoreRules: Record<IgnoreRuleKey, boolean>;
   showIgnoredDifferences: boolean;
 };

@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import type {
-  ComparisonFieldKey,
   ComparisonSettings,
+  ImportantFieldSetting,
   IgnoreRuleKey,
 } from '../types/comparison';
 
@@ -11,17 +12,6 @@ type ComparisonSettingsPanelProps = {
   onCollapseChange: (isCollapsed: boolean) => void;
   onSettingsChange: (settings: ComparisonSettings) => void;
 };
-
-const fieldOptions: { key: ComparisonFieldKey; label: string }[] = [
-  { key: 'poNumber', label: 'PO Number' },
-  { key: 'invoiceNumber', label: 'Invoice Number' },
-  { key: 'date', label: 'Date' },
-  { key: 'quantity', label: 'Quantity' },
-  { key: 'amount', label: 'Amount' },
-  { key: 'total', label: 'Total' },
-  { key: 'itemDescription', label: 'Item Description' },
-  { key: 'remarks', label: 'Remarks' },
-];
 
 const ignoreOptions: { key: IgnoreRuleKey; label: string }[] = [
   { key: 'pageNumbers', label: 'Page numbers' },
@@ -40,13 +30,64 @@ function ComparisonSettingsPanel({
   onCollapseChange,
   onSettingsChange,
 }: ComparisonSettingsPanelProps) {
-  function updateImportantField(fieldKey: ComparisonFieldKey, isImportant: boolean) {
+  const [newFieldLabel, setNewFieldLabel] = useState('');
+
+  function updateImportantField(fieldKey: string, isImportant: boolean) {
     onSettingsChange({
       ...settings,
-      importantFields: {
-        ...settings.importantFields,
-        [fieldKey]: isImportant,
-      },
+      importantFields: settings.importantFields.map((field) =>
+        field.key === fieldKey ? { ...field, enabled: isImportant } : field,
+      ),
+    });
+  }
+
+  function getCustomFieldKey(label: string) {
+    const normalizedLabel = label
+      .normalize('NFKC')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+      .replace(/\s+(.)/g, (_, character: string) => character.toUpperCase());
+
+    return `custom:${normalizedLabel}`;
+  }
+
+  function addImportantField() {
+    const label = newFieldLabel.trim();
+
+    if (label.length === 0) {
+      return;
+    }
+
+    const key = getCustomFieldKey(label);
+    const existingField = settings.importantFields.find(
+      (field) => field.key === key || field.label.toLowerCase() === label.toLowerCase(),
+    );
+
+    if (existingField !== undefined) {
+      updateImportantField(existingField.key, true);
+      setNewFieldLabel('');
+      return;
+    }
+
+    const customField: ImportantFieldSetting = {
+      key,
+      label,
+      enabled: true,
+      isCustom: true,
+    };
+
+    onSettingsChange({
+      ...settings,
+      importantFields: [...settings.importantFields, customField],
+    });
+    setNewFieldLabel('');
+  }
+
+  function removeCustomField(fieldKey: string) {
+    onSettingsChange({
+      ...settings,
+      importantFields: settings.importantFields.filter((field) => field.key !== fieldKey),
     });
   }
 
@@ -107,16 +148,50 @@ function ComparisonSettingsPanel({
           <div>
             <h3 style={{ margin: '0 0 8px' }}>Important Fields</h3>
             <div style={{ display: 'grid', gap: '6px' }}>
-              {fieldOptions.map((fieldOption) => (
-                <label key={fieldOption.key}>
-                  <input
-                    checked={settings.importantFields[fieldOption.key]}
-                    onChange={(event) => updateImportantField(fieldOption.key, event.target.checked)}
-                    type="checkbox"
-                  />{' '}
-                  {fieldOption.label}
-                </label>
+              {settings.importantFields.map((field) => (
+                <div
+                  key={field.key}
+                  style={{
+                    alignItems: 'center',
+                    display: 'flex',
+                    gap: '8px',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <label>
+                    <input
+                      checked={field.enabled}
+                      onChange={(event) => updateImportantField(field.key, event.target.checked)}
+                      type="checkbox"
+                    />{' '}
+                    {field.label}
+                  </label>
+                  {field.isCustom ? (
+                    <button type="button" onClick={() => removeCustomField(field.key)}>
+                      Remove
+                    </button>
+                  ) : null}
+                </div>
               ))}
+              <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                <input
+                  aria-label="Add important field"
+                  onChange={(event) => setNewFieldLabel(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      addImportantField();
+                    }
+                  }}
+                  placeholder="Add important field"
+                  style={{ flex: 1, minWidth: 0 }}
+                  type="text"
+                  value={newFieldLabel}
+                />
+                <button type="button" onClick={addImportantField}>
+                  Add Field
+                </button>
+              </div>
             </div>
           </div>
 

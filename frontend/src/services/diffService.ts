@@ -1,5 +1,4 @@
 import type {
-  ComparisonFieldKey,
   ComparisonResult,
   ComparisonSettings,
   Difference,
@@ -76,16 +75,21 @@ const MODIFIED_SIMILARITY_THRESHOLD = 0.35;
 const TABLE_LINE_Y_TOLERANCE = 3;
 const MAX_MULTI_WORD_FIELD_VALUE_LOCATIONS = 4;
 export const defaultComparisonSettings: ComparisonSettings = {
-  importantFields: {
-    poNumber: true,
-    invoiceNumber: true,
-    date: true,
-    quantity: true,
-    amount: true,
-    total: true,
-    itemDescription: true,
-    remarks: true,
-  },
+  importantFields: [
+    { key: 'poNumber', label: 'PO Number', enabled: true, isCustom: false },
+    { key: 'invoiceNumber', label: 'Invoice Number', enabled: true, isCustom: false },
+    { key: 'date', label: 'Date', enabled: true, isCustom: false },
+    { key: 'quantity', label: 'Quantity', enabled: true, isCustom: false },
+    { key: 'amount', label: 'Amount', enabled: true, isCustom: false },
+    { key: 'total', label: 'Total', enabled: true, isCustom: false },
+    { key: 'itemDescription', label: 'Item Description', enabled: true, isCustom: false },
+    { key: 'remarks', label: 'Remarks', enabled: true, isCustom: false },
+    { key: 'customer', label: 'Customer', enabled: true, isCustom: false },
+    { key: 'supplier', label: 'Supplier', enabled: true, isCustom: false },
+    { key: 'itemCode', label: 'Item Code', enabled: true, isCustom: false },
+    { key: 'unitPrice', label: 'Unit Price', enabled: true, isCustom: false },
+    { key: 'lineTotal', label: 'Line Total', enabled: true, isCustom: false },
+  ],
   ignoreRules: {
     pageNumbers: true,
     printDates: true,
@@ -175,7 +179,39 @@ const FIELD_DEFINITIONS: FieldDefinition[] = [
     valuePattern: String.raw`[A-Z0-9][A-Z0-9&.,'() /-]{1,220}`,
     aliases: ['remark', 'remarks', 'note', 'notes', 'comment', 'comments'],
   },
+  {
+    key: 'unitPrice',
+    label: 'Unit Price',
+    labelPattern: String.raw`(?:Unit\s*Price|Price\s*Per\s*Unit|Rate)`,
+    valuePattern: String.raw`(?:[$\u20ac\u00a3]\s*)?-?\d{1,3}(?:,\d{3})*(?:\.\d+)?|-?\d+(?:\.\d+)?`,
+    aliases: ['unit price', 'price per unit', 'rate'],
+  },
+  {
+    key: 'lineTotal',
+    label: 'Line Total',
+    labelPattern: String.raw`(?:Line\s*Total|Extended\s*Amount|Ext\.?\s*Amount)`,
+    valuePattern: String.raw`(?:[$\u20ac\u00a3]\s*)?-?\d{1,3}(?:,\d{3})*(?:\.\d+)?|-?\d+(?:\.\d+)?`,
+    aliases: ['line total', 'extended amount', 'ext amount'],
+  },
 ];
+
+function escapeRegExp(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function getFieldDefinitions(settings: ComparisonSettings) {
+  const customDefinitions = settings.importantFields
+    .filter((field) => field.isCustom)
+    .map<FieldDefinition>((field) => ({
+      key: field.key,
+      label: field.label,
+      labelPattern: escapeRegExp(field.label).replace(/\s+/g, String.raw`\s+`),
+      valuePattern: String.raw`[A-Z0-9][A-Z0-9&.,'() /_#-]{0,160}`,
+      aliases: [field.label],
+    }));
+
+  return [...FIELD_DEFINITIONS, ...customDefinitions];
+}
 
 function normalizeDisplayText(text: string) {
   return text
@@ -289,14 +325,14 @@ function groupLocationsIntoLines(page: ExtractedPdfPage): TextLine[] {
     .sort((lineA, lineB) => lineB.y - lineA.y);
 }
 
-function getCanonicalFieldDefinition(label: string) {
+function getCanonicalFieldDefinition(label: string, fieldDefinitions: FieldDefinition[]) {
   const labelKey = createComparisonKey(label);
 
   if (labelKey.length === 0) {
     return undefined;
   }
 
-  return FIELD_DEFINITIONS.find((fieldDefinition) =>
+  return fieldDefinitions.find((fieldDefinition) =>
     fieldDefinition.aliases.some((alias) => {
       const aliasKey = createComparisonKey(alias);
 
@@ -407,6 +443,7 @@ function getCellValueForField(fieldDefinition: FieldDefinition, text: string) {
 
 function getValueLocationsAfterLabel(
   fieldDefinition: FieldDefinition,
+  fieldDefinitions: FieldDefinition[],
   locations: PdfTextLocation[],
   valueStartIndex: number,
 ) {
@@ -420,8 +457,8 @@ function getValueLocationsAfterLabel(
 
     if (
       valueLocations.length > 0 &&
-      (getCanonicalFieldDefinition(location.text) !== undefined ||
-        getCanonicalFieldDefinition(adjacentLabelText) !== undefined)
+      (getCanonicalFieldDefinition(location.text, fieldDefinitions) !== undefined ||
+        getCanonicalFieldDefinition(adjacentLabelText, fieldDefinitions) !== undefined)
     ) {
       break;
     }
@@ -491,10 +528,14 @@ function getFieldPattern(fieldDefinition: FieldDefinition) {
   );
 }
 
-function extractInlineFieldCandidates(page: ExtractedPdfPage, line: TextLine) {
+function extractInlineFieldCandidates(
+  page: ExtractedPdfPage,
+  line: TextLine,
+  fieldDefinitions: FieldDefinition[],
+) {
   const candidates: FieldCandidate[] = [];
 
-  FIELD_DEFINITIONS.forEach((fieldDefinition) => {
+  fieldDefinitions.forEach((fieldDefinition) => {
     const pattern = getFieldPattern(fieldDefinition);
     let match: RegExpExecArray | null;
 
@@ -516,11 +557,15 @@ function extractInlineFieldCandidates(page: ExtractedPdfPage, line: TextLine) {
   return candidates;
 }
 
-function extractRowFieldCandidates(page: ExtractedPdfPage, line: TextLine) {
+function extractRowFieldCandidates(
+  page: ExtractedPdfPage,
+  line: TextLine,
+  fieldDefinitions: FieldDefinition[],
+) {
   const candidates: FieldCandidate[] = [];
 
   line.locations.forEach((location, locationIndex) => {
-    FIELD_DEFINITIONS.forEach((fieldDefinition) => {
+    fieldDefinitions.forEach((fieldDefinition) => {
       const embeddedCandidate = getEmbeddedFieldCandidate(fieldDefinition, location, page.pageNumber);
 
       if (embeddedCandidate !== null) {
@@ -531,8 +576,8 @@ function extractRowFieldCandidates(page: ExtractedPdfPage, line: TextLine) {
     const adjacentLabelText = normalizeDisplayText(
       [location.text, line.locations[locationIndex + 1]?.text].filter(Boolean).join(' '),
     );
-    const adjacentFieldDefinition = getCanonicalFieldDefinition(adjacentLabelText);
-    const singleFieldDefinition = getCanonicalFieldDefinition(location.text);
+    const adjacentFieldDefinition = getCanonicalFieldDefinition(adjacentLabelText, fieldDefinitions);
+    const singleFieldDefinition = getCanonicalFieldDefinition(location.text, fieldDefinitions);
     const fieldDefinition = adjacentFieldDefinition ?? singleFieldDefinition;
     const valueStartIndex = adjacentFieldDefinition === undefined ? locationIndex + 1 : locationIndex + 2;
 
@@ -540,7 +585,12 @@ function extractRowFieldCandidates(page: ExtractedPdfPage, line: TextLine) {
       return;
     }
 
-    const valueLocations = getValueLocationsAfterLabel(fieldDefinition, line.locations, valueStartIndex);
+    const valueLocations = getValueLocationsAfterLabel(
+      fieldDefinition,
+      fieldDefinitions,
+      line.locations,
+      valueStartIndex,
+    );
 
     if (valueLocations.length === 0) {
       return;
@@ -564,7 +614,7 @@ function extractRowFieldCandidates(page: ExtractedPdfPage, line: TextLine) {
   return candidates;
 }
 
-function getHeaderColumns(headerLine: TextLine) {
+function getHeaderColumns(headerLine: TextLine, fieldDefinitions: FieldDefinition[]) {
   const columns: { fieldDefinition: FieldDefinition; x: number }[] = [];
 
   headerLine.locations.forEach((location, locationIndex) => {
@@ -572,7 +622,8 @@ function getHeaderColumns(headerLine: TextLine) {
       [location.text, headerLine.locations[locationIndex + 1]?.text].filter(Boolean).join(' '),
     );
     const fieldDefinition =
-      getCanonicalFieldDefinition(adjacentLabelText) ?? getCanonicalFieldDefinition(location.text);
+      getCanonicalFieldDefinition(adjacentLabelText, fieldDefinitions) ??
+      getCanonicalFieldDefinition(location.text, fieldDefinitions);
 
     if (fieldDefinition === undefined) {
       return;
@@ -591,11 +642,15 @@ function isLikelyValueLocation(location: PdfTextLocation) {
   return createComparisonKey(location.text).length > 0;
 }
 
-function extractTableFieldCandidates(page: ExtractedPdfPage, lines: TextLine[]) {
+function extractTableFieldCandidates(
+  page: ExtractedPdfPage,
+  lines: TextLine[],
+  fieldDefinitions: FieldDefinition[],
+) {
   const candidates: FieldCandidate[] = [];
 
   lines.forEach((line, lineIndex) => {
-    const columns = getHeaderColumns(line);
+    const columns = getHeaderColumns(line, fieldDefinitions);
 
     if (columns.length < 2) {
       return;
@@ -666,15 +721,18 @@ function mergeFieldCandidate(fieldsByKey: Map<string, ExtractedField>, candidate
   existingField.locations = dedupeLocations([...existingField.locations, ...candidate.locations]);
 }
 
-function extractStructuredFields(pages: ExtractedPdfPage[]) {
+function extractStructuredFields(
+  pages: ExtractedPdfPage[],
+  fieldDefinitions: FieldDefinition[],
+) {
   const fieldsByKey = new Map<string, ExtractedField>();
 
   pages.forEach((page) => {
     const lines = groupLocationsIntoLines(page);
     const candidates = [
-      ...lines.flatMap((line) => extractInlineFieldCandidates(page, line)),
-      ...lines.flatMap((line) => extractRowFieldCandidates(page, line)),
-      ...extractTableFieldCandidates(page, lines),
+      ...lines.flatMap((line) => extractInlineFieldCandidates(page, line, fieldDefinitions)),
+      ...lines.flatMap((line) => extractRowFieldCandidates(page, line, fieldDefinitions)),
+      ...extractTableFieldCandidates(page, lines, fieldDefinitions),
     ];
 
     candidates.forEach((candidate) => mergeFieldCandidate(fieldsByKey, candidate));
@@ -1182,15 +1240,14 @@ function getIgnoredReason(
 ) {
   const text = getDifferenceText(difference);
   const key = createComparisonKey(text);
-  const fieldKey = difference.fieldKey as ComparisonFieldKey | undefined;
+  const importantField = settings.importantFields.find((field) => field.key === difference.fieldKey);
 
   if (
     difference.isFieldDifference &&
-    fieldKey !== undefined &&
-    fieldKey in settings.importantFields &&
-    !settings.importantFields[fieldKey]
+    importantField !== undefined &&
+    !importantField.enabled
   ) {
-    return `${difference.fieldLabel ?? fieldKey} is not selected as an important field`;
+    return `${difference.fieldLabel ?? importantField.label} is not selected as an important field`;
   }
 
   if (settings.ignoreRules.pageNumbers && /^(?:page\s*)?\d+\s*(?:of|\/|-)\s*\d+$|^\d+$/i.test(text.trim())) {
@@ -1278,8 +1335,9 @@ export function generateComparisonResult(
   const pageHeights = new Map(
     [...pdfAPages, ...pdfBPages].map((page) => [page.pageNumber, page.pageHeight] as const),
   );
-  const fieldsA = extractStructuredFields(pdfAPages);
-  const fieldsB = extractStructuredFields(pdfBPages);
+  const fieldDefinitions = getFieldDefinitions(settings);
+  const fieldsA = extractStructuredFields(pdfAPages, fieldDefinitions);
+  const fieldsB = extractStructuredFields(pdfBPages, fieldDefinitions);
   const fieldDifferences = compareStructuredFields(fieldsA, fieldsB);
   const filteredPdfAPages = removeFieldSourcesFromPages(pdfAPages, fieldsA);
   const filteredPdfBPages = removeFieldSourcesFromPages(pdfBPages, fieldsB);

@@ -54,6 +54,7 @@ const LINE_Y_TOLERANCE = 3;
 const PAGE_EDGE_RATIO = 0.12;
 const MIN_REPEATED_BOILERPLATE_PAGES = 2;
 const PANEL_LAYOUT_STORAGE_KEY = 'document-comparison-panel-layout';
+const COMPARISON_SETTINGS_STORAGE_KEY = 'document-comparison-settings';
 const MIN_PDF_PANEL_WIDTH = 320;
 const MIN_DIFFERENCE_PANEL_WIDTH = 280;
 const COLLAPSED_DIFFERENCE_PANEL_WIDTH = 56;
@@ -90,6 +91,40 @@ function getInitialPanelLayout() {
     };
   } catch {
     return defaultPanelLayout;
+  }
+}
+
+function getInitialComparisonSettings() {
+  try {
+    const savedSettings = window.localStorage.getItem(COMPARISON_SETTINGS_STORAGE_KEY);
+
+    if (savedSettings === null) {
+      return defaultComparisonSettings;
+    }
+
+    const parsedSettings = JSON.parse(savedSettings) as Partial<ComparisonSettings> & {
+      importantFields?: ComparisonSettings['importantFields'] | Record<string, boolean>;
+    };
+    const savedFields = Array.isArray(parsedSettings.importantFields)
+      ? parsedSettings.importantFields
+      : [];
+    const savedFieldByKey = new Map(savedFields.map((field) => [field.key, field]));
+    const builtInFields = defaultComparisonSettings.importantFields.map(
+      (field) => savedFieldByKey.get(field.key) ?? field,
+    );
+    const customFields = savedFields.filter((field) => field.isCustom);
+
+    return {
+      ...defaultComparisonSettings,
+      ...parsedSettings,
+      importantFields: [...builtInFields, ...customFields],
+      ignoreRules: {
+        ...defaultComparisonSettings.ignoreRules,
+        ...parsedSettings.ignoreRules,
+      },
+    };
+  } catch {
+    return defaultComparisonSettings;
   }
 }
 
@@ -319,7 +354,7 @@ function SideBySideViewer() {
   const [panelLayout, setPanelLayout] = useState<PanelLayout>(getInitialPanelLayout);
   const [workspaceWidth, setWorkspaceWidth] = useState(0);
   const [comparisonSettings, setComparisonSettings] =
-    useState<ComparisonSettings>(defaultComparisonSettings);
+    useState<ComparisonSettings>(getInitialComparisonSettings);
   const pdfAExtraction = usePdfTextExtraction(pdfA);
   const pdfBExtraction = usePdfTextExtraction(pdfB);
   const comparisonResult = useMemo(() => {
@@ -354,6 +389,13 @@ function SideBySideViewer() {
   useEffect(() => {
     window.localStorage.setItem(PANEL_LAYOUT_STORAGE_KEY, JSON.stringify(panelLayout));
   }, [panelLayout]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      COMPARISON_SETTINGS_STORAGE_KEY,
+      JSON.stringify(comparisonSettings),
+    );
+  }, [comparisonSettings]);
 
   useEffect(() => {
     const workspace = workspaceRef.current;
