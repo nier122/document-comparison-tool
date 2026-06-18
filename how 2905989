@@ -1,0 +1,10 @@
+[33m2905989[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Render selected PDF pages
+[33me7ded19[m Store selected PDFs in side by side viewer
+[33md0706df[m Wire PDF upload selection
+[33mabf2fee[m Configure PDF.js worker
+[33m4e972eb[m Add react-pdf dependencies
+[33m30ffd47[m Refactor App into modular frontend components
+[33m0917eb0[m Add difference panel component
+[33mc684a76[m Add comparison types
+[33m6c7167e[m Add side by side viewer component
+[33meaef5e0[m Add PDF viewer component
