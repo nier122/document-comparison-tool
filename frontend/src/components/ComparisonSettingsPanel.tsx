@@ -6,7 +6,9 @@ import type {
 
 type ComparisonSettingsPanelProps = {
   ignoredDifferenceCount: number;
+  isCollapsed: boolean;
   settings: ComparisonSettings;
+  onCollapseChange: (isCollapsed: boolean) => void;
   onSettingsChange: (settings: ComparisonSettings) => void;
 };
 
@@ -33,7 +35,9 @@ const ignoreOptions: { key: IgnoreRuleKey; label: string }[] = [
 
 function ComparisonSettingsPanel({
   ignoredDifferenceCount,
+  isCollapsed,
   settings,
+  onCollapseChange,
   onSettingsChange,
 }: ComparisonSettingsPanelProps) {
   function updateImportantField(fieldKey: ComparisonFieldKey, isImportant: boolean) {
@@ -68,56 +72,83 @@ function ComparisonSettingsPanel({
       aria-label="Comparison settings"
       style={{
         border: '1px solid #d1d5db',
-        display: 'grid',
-        gap: '12px',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-        marginTop: '10px',
+        boxSizing: 'border-box',
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        minHeight: 0,
         padding: '12px',
       }}
     >
-      <div>
-        <h3 style={{ margin: '0 0 8px' }}>Important Fields</h3>
-        <div style={{ display: 'grid', gap: '6px' }}>
-          {fieldOptions.map((fieldOption) => (
-            <label key={fieldOption.key}>
-              <input
-                checked={settings.importantFields[fieldOption.key]}
-                onChange={(event) => updateImportantField(fieldOption.key, event.target.checked)}
-                type="checkbox"
-              />{' '}
-              {fieldOption.label}
-            </label>
-          ))}
-        </div>
+      <div
+        style={{
+          alignItems: 'center',
+          display: 'flex',
+          justifyContent: 'space-between',
+        }}
+      >
+        <h2 style={{ fontSize: '16px', margin: 0 }}>Comparison Settings</h2>
+        <button type="button" onClick={() => onCollapseChange(!isCollapsed)}>
+          {isCollapsed ? 'Open' : 'Collapse'}
+        </button>
       </div>
 
-      <div>
-        <h3 style={{ margin: '0 0 8px' }}>Ignore Noise</h3>
-        <div style={{ display: 'grid', gap: '6px' }}>
-          {ignoreOptions.map((ignoreOption) => (
-            <label key={ignoreOption.key}>
+      {isCollapsed ? null : (
+        <div
+          style={{
+            display: 'grid',
+            gap: '16px',
+            gridTemplateColumns: 'repeat(3, minmax(220px, 1fr))',
+            marginTop: '12px',
+            minHeight: 0,
+            overflow: 'auto',
+          }}
+        >
+          <div>
+            <h3 style={{ margin: '0 0 8px' }}>Important Fields</h3>
+            <div style={{ display: 'grid', gap: '6px' }}>
+              {fieldOptions.map((fieldOption) => (
+                <label key={fieldOption.key}>
+                  <input
+                    checked={settings.importantFields[fieldOption.key]}
+                    onChange={(event) => updateImportantField(fieldOption.key, event.target.checked)}
+                    type="checkbox"
+                  />{' '}
+                  {fieldOption.label}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <h3 style={{ margin: '0 0 8px' }}>Ignore Noise</h3>
+            <div style={{ display: 'grid', gap: '6px' }}>
+              {ignoreOptions.map((ignoreOption) => (
+                <label key={ignoreOption.key}>
+                  <input
+                    checked={settings.ignoreRules[ignoreOption.key]}
+                    onChange={(event) => updateIgnoreRule(ignoreOption.key, event.target.checked)}
+                    type="checkbox"
+                  />{' '}
+                  {ignoreOption.label}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <h3 style={{ margin: '0 0 8px' }}>Debug</h3>
+            <label>
               <input
-                checked={settings.ignoreRules[ignoreOption.key]}
-                onChange={(event) => updateIgnoreRule(ignoreOption.key, event.target.checked)}
+                checked={settings.showIgnoredDifferences}
+                onChange={(event) => updateShowIgnoredDifferences(event.target.checked)}
                 type="checkbox"
               />{' '}
-              {ignoreOption.label}
+              Show ignored differences ({ignoredDifferenceCount})
             </label>
-          ))}
+          </div>
         </div>
-      </div>
-
-      <div>
-        <h3 style={{ margin: '0 0 8px' }}>Debug</h3>
-        <label>
-          <input
-            checked={settings.showIgnoredDifferences}
-            onChange={(event) => updateShowIgnoredDifferences(event.target.checked)}
-            type="checkbox"
-          />{' '}
-          Show ignored differences ({ignoredDifferenceCount})
-        </label>
-      </div>
+      )}
     </section>
   );
 }

@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { getDocument } from 'pdfjs-dist';
 import ComparisonSettingsPanel from './ComparisonSettingsPanel';
 import DifferencePanel from './DifferencePanel';
+import PanelResizeHandle from './PanelResizeHandle';
 import PDFExtractionDebugView from './PDFExtractionDebugView';
 import PDFViewer from './PDFViewer';
 import { defaultComparisonSettings, generateComparisonResult } from '../services/diffService';
@@ -51,6 +53,45 @@ type PdfTextContentItem = {
 const LINE_Y_TOLERANCE = 3;
 const PAGE_EDGE_RATIO = 0.12;
 const MIN_REPEATED_BOILERPLATE_PAGES = 2;
+const PANEL_LAYOUT_STORAGE_KEY = 'document-comparison-panel-layout';
+const MIN_PDF_PANEL_WIDTH = 320;
+const MIN_DIFFERENCE_PANEL_WIDTH = 280;
+const COLLAPSED_DIFFERENCE_PANEL_WIDTH = 56;
+const MIN_SETTINGS_PANEL_HEIGHT = 150;
+const COLLAPSED_SETTINGS_PANEL_HEIGHT = 50;
+
+type PanelLayout = {
+  pdfA: number;
+  pdfB: number;
+  differences: number;
+  settingsHeight: number;
+  settingsCollapsed: boolean;
+};
+
+const defaultPanelLayout: PanelLayout = {
+  pdfA: 0.37,
+  pdfB: 0.37,
+  differences: 0.26,
+  settingsHeight: 220,
+  settingsCollapsed: true,
+};
+
+function getInitialPanelLayout() {
+  try {
+    const savedLayout = window.localStorage.getItem(PANEL_LAYOUT_STORAGE_KEY);
+
+    if (savedLayout === null) {
+      return defaultPanelLayout;
+    }
+
+    return {
+      ...defaultPanelLayout,
+      ...(JSON.parse(savedLayout) as Partial<PanelLayout>),
+    };
+  } catch {
+    return defaultPanelLayout;
+  }
+}
 
 function normalizeExtractedText(text: string) {
   return text
@@ -267,12 +308,16 @@ function usePdfTextExtraction(file: File | null) {
 }
 
 function SideBySideViewer() {
+  const reviewAreaRef = useRef<HTMLDivElement | null>(null);
+  const workspaceRef = useRef<HTMLDivElement | null>(null);
   const [pdfA, setPdfA] = useState<File | null>(null);
   const [pdfB, setPdfB] = useState<File | null>(null);
   const [selectedDifference, setSelectedDifference] = useState<Difference | null>(null);
   const [navigationRequest, setNavigationRequest] = useState(0);
   const [showDebugView, setShowDebugView] = useState(false);
   const [isDifferencePanelCollapsed, setIsDifferencePanelCollapsed] = useState(false);
+  const [panelLayout, setPanelLayout] = useState<PanelLayout>(getInitialPanelLayout);
+  const [workspaceWidth, setWorkspaceWidth] = useState(0);
   const [comparisonSettings, setComparisonSettings] =
     useState<ComparisonSettings>(defaultComparisonSettings);
   const pdfAExtraction = usePdfTextExtraction(pdfA);
@@ -305,6 +350,28 @@ function SideBySideViewer() {
       setSelectedDifference(null);
     }
   }, [differences, selectedDifference]);
+
+  useEffect(() => {
+    window.localStorage.setItem(PANEL_LAYOUT_STORAGE_KEY, JSON.stringify(panelLayout));
+  }, [panelLayout]);
+
+  useEffect(() => {
+    const workspace = workspaceRef.current;
+
+    if (workspace === null) {
+      return;
+    }
+
+    const resizeObserver = new ResizeObserver(([entry]) => {
+      setWorkspaceWidth(entry.contentRect.width);
+    });
+
+    resizeObserver.observe(workspace);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
 
   function handleDifferenceSelect(difference: Difference) {
     setSelectedDifference(difference);
@@ -342,8 +409,128 @@ function SideBySideViewer() {
     goToDifferenceAtIndex(selectedDifferenceIndex + 1);
   }
 
+  function startHorizontalResize(
+    event: ReactPointerEvent<HTMLDivElement>,
+    divider: 'pdfs' | 'differences',
+  ) {
+    event.preventDefault();
+
+    const availableWidth = Math.max(workspaceWidth - 16, 1);
+    const startX = event.clientX;
+    const startWidths = {
+      pdfA: panelLayout.pdfA * availableWidth,
+      pdfB: panelLayout.pdfB * availableWidth,
+      differences: panelLayout.differences * availableWidth,
+    };
+
+    function handlePointerMove(pointerEvent: PointerEvent) {
+      const delta = pointerEvent.clientX - startX;
+
+      if (divider === 'pdfs') {
+        const combinedWidth = startWidths.pdfA + startWidths.pdfB;
+        const nextPdfA = Math.min(
+          Math.max(startWidths.pdfA + delta, MIN_PDF_PANEL_WIDTH),
+          combinedWidth - MIN_PDF_PANEL_WIDTH,
+        );
+        const nextPdfB = combinedWidth - nextPdfA;
+
+        setPanelLayout((currentLayout) => ({
+          ...currentLayout,
+          pdfA: nextPdfA / availableWidth,
+          pdfB: nextPdfB / availableWidth,
+        }));
+        return;
+      }
+
+      if (isDifferencePanelCollapsed) {
+        return;
+      }
+
+      const combinedWidth = startWidths.pdfB + startWidths.differences;
+      const nextPdfB = Math.min(
+        Math.max(startWidths.pdfB + delta, MIN_PDF_PANEL_WIDTH),
+        combinedWidth - MIN_DIFFERENCE_PANEL_WIDTH,
+      );
+      const nextDifferenceWidth = combinedWidth - nextPdfB;
+
+      setPanelLayout((currentLayout) => ({
+        ...currentLayout,
+        pdfB: nextPdfB / availableWidth,
+        differences: nextDifferenceWidth / availableWidth,
+      }));
+    }
+
+    function handlePointerUp() {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    }
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+  }
+
+  function startSettingsResize(event: ReactPointerEvent<HTMLDivElement>) {
+    if (panelLayout.settingsCollapsed) {
+      return;
+    }
+
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = panelLayout.settingsHeight;
+    const maximumHeight = Math.max((reviewAreaRef.current?.clientHeight ?? 600) * 0.55, MIN_SETTINGS_PANEL_HEIGHT);
+
+    function handlePointerMove(pointerEvent: PointerEvent) {
+      const nextHeight = Math.min(
+        Math.max(startHeight + startY - pointerEvent.clientY, MIN_SETTINGS_PANEL_HEIGHT),
+        maximumHeight,
+      );
+
+      setPanelLayout((currentLayout) => ({
+        ...currentLayout,
+        settingsHeight: nextHeight,
+      }));
+    }
+
+    function handlePointerUp() {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    }
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+  }
+
+  function setSettingsCollapsed(settingsCollapsed: boolean) {
+    setPanelLayout((currentLayout) => ({
+      ...currentLayout,
+      settingsCollapsed,
+    }));
+  }
+
+  const availableWorkspaceWidth = Math.max(workspaceWidth - 16, 0);
+  const expandedPdfAWidth = panelLayout.pdfA * availableWorkspaceWidth;
+  const expandedPdfBWidth = panelLayout.pdfB * availableWorkspaceWidth;
+  const collapsedPdfAvailableWidth = Math.max(
+    availableWorkspaceWidth - COLLAPSED_DIFFERENCE_PANEL_WIDTH,
+    MIN_PDF_PANEL_WIDTH * 2,
+  );
+  const pdfRatioTotal = panelLayout.pdfA + panelLayout.pdfB;
+  const pdfAWidth = isDifferencePanelCollapsed
+    ? collapsedPdfAvailableWidth * (panelLayout.pdfA / pdfRatioTotal)
+    : expandedPdfAWidth;
+  const pdfBWidth = isDifferencePanelCollapsed
+    ? collapsedPdfAvailableWidth * (panelLayout.pdfB / pdfRatioTotal)
+    : expandedPdfBWidth;
+  const differencePanelWidth = isDifferencePanelCollapsed
+    ? COLLAPSED_DIFFERENCE_PANEL_WIDTH
+    : panelLayout.differences * availableWorkspaceWidth;
+  const settingsPanelHeight = panelLayout.settingsCollapsed
+    ? COLLAPSED_SETTINGS_PANEL_HEIGHT
+    : panelLayout.settingsHeight;
+
   return (
     <div
+      ref={reviewAreaRef}
       style={{
         display: 'flex',
         flex: 1,
@@ -353,23 +540,22 @@ function SideBySideViewer() {
       }}
     >
       <div
+        ref={workspaceRef}
         style={{
-          display: 'grid',
+          display: 'flex',
           flex: 1,
-          gap: '12px',
-          gridTemplateColumns: isDifferencePanelCollapsed ? 'minmax(0, 1fr) 56px' : 'minmax(0, 1fr) minmax(340px, 26vw)',
           minHeight: 0,
+          minWidth: 0,
           overflow: 'hidden',
         }}
       >
-        <main
-          aria-label="PDF review workspace"
+        <div
           style={{
             display: 'flex',
-            gap: '12px',
             minHeight: 0,
-            minWidth: 0,
+            minWidth: MIN_PDF_PANEL_WIDTH,
             overflow: 'hidden',
+            width: pdfAWidth,
           }}
         >
           <PDFViewer
@@ -382,6 +568,21 @@ function SideBySideViewer() {
             navigationRequest={navigationRequest}
             onFileSelect={setPdfA}
           />
+        </div>
+        <PanelResizeHandle
+          direction="vertical"
+          label="Resize PDF A and PDF B"
+          onPointerDown={(event) => startHorizontalResize(event, 'pdfs')}
+        />
+        <div
+          style={{
+            display: 'flex',
+            minHeight: 0,
+            minWidth: MIN_PDF_PANEL_WIDTH,
+            overflow: 'hidden',
+            width: pdfBWidth,
+          }}
+        >
           <PDFViewer
             title="PDF B"
             file={pdfB}
@@ -392,58 +593,93 @@ function SideBySideViewer() {
             navigationRequest={navigationRequest}
             onFileSelect={setPdfB}
           />
-        </main>
-        <DifferencePanel
-          currentDifferenceIndex={selectedDifferenceIndex}
-          differences={differences}
-          isCollapsed={isDifferencePanelCollapsed}
-          selectedDifferenceId={selectedDifference?.id}
-          onCollapseChange={setIsDifferencePanelCollapsed}
-          onDifferenceSelect={handleDifferenceSelect}
-          onNextDifference={goToNextDifference}
-          onPreviousDifference={goToPreviousDifference}
+        </div>
+        <PanelResizeHandle
+          direction="vertical"
+          label="Resize PDF B and differences"
+          onPointerDown={(event) => startHorizontalResize(event, 'differences')}
         />
+        <div
+          style={{
+            minHeight: 0,
+            minWidth: isDifferencePanelCollapsed
+              ? COLLAPSED_DIFFERENCE_PANEL_WIDTH
+              : MIN_DIFFERENCE_PANEL_WIDTH,
+            overflow: 'hidden',
+            width: differencePanelWidth,
+          }}
+        >
+          <DifferencePanel
+            currentDifferenceIndex={selectedDifferenceIndex}
+            differences={differences}
+            isCollapsed={isDifferencePanelCollapsed}
+            selectedDifferenceId={selectedDifference?.id}
+            onCollapseChange={setIsDifferencePanelCollapsed}
+            onDifferenceSelect={handleDifferenceSelect}
+            onNextDifference={goToNextDifference}
+            onPreviousDifference={goToPreviousDifference}
+          />
+        </div>
       </div>
+
+      <PanelResizeHandle
+        direction="horizontal"
+        label="Resize comparison settings"
+        onPointerDown={startSettingsResize}
+      />
+
       <div
         style={{
-          alignItems: 'center',
           display: 'flex',
-          flexWrap: 'wrap',
-          gap: '12px',
-          marginTop: '10px',
+          flex: `0 0 ${settingsPanelHeight}px`,
+          flexDirection: 'column',
+          minHeight: 0,
+          overflow: 'auto',
         }}
       >
-        <label>
-          <input
-            checked={showDebugView}
-            onChange={(event) => setShowDebugView(event.target.checked)}
-            type="checkbox"
-          />{' '}
-          Show Debug View
-        </label>
-      </div>
-      <ComparisonSettingsPanel
-        ignoredDifferenceCount={ignoredDifferences.length}
-        settings={comparisonSettings}
-        onSettingsChange={setComparisonSettings}
-      />
-      {showDebugView ? (
-        <div style={{ maxHeight: '34vh', overflow: 'auto' }}>
+        <ComparisonSettingsPanel
+          ignoredDifferenceCount={ignoredDifferences.length}
+          isCollapsed={panelLayout.settingsCollapsed}
+          settings={comparisonSettings}
+          onCollapseChange={setSettingsCollapsed}
+          onSettingsChange={setComparisonSettings}
+        />
+        {panelLayout.settingsCollapsed ? null : (
+          <div
+            style={{
+              alignItems: 'center',
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '12px',
+              padding: '10px 12px 0',
+            }}
+          >
+            <label>
+              <input
+                checked={showDebugView}
+                onChange={(event) => setShowDebugView(event.target.checked)}
+                type="checkbox"
+              />{' '}
+              Show Extraction Debug View
+            </label>
+          </div>
+        )}
+        {!panelLayout.settingsCollapsed && showDebugView ? (
           <PDFExtractionDebugView
             pdfAExtraction={pdfAExtraction}
             pdfBExtraction={pdfBExtraction}
           />
-        </div>
-      ) : null}
-      {comparisonSettings.showIgnoredDifferences && ignoredDifferences.length > 0 ? (
-        <div style={{ maxHeight: '34vh', marginTop: '10px', overflow: 'auto' }}>
+        ) : null}
+        {!panelLayout.settingsCollapsed &&
+        comparisonSettings.showIgnoredDifferences &&
+        ignoredDifferences.length > 0 ? (
           <DifferencePanel
             differences={ignoredDifferences}
             selectedDifferenceId={selectedDifference?.id}
             onDifferenceSelect={handleDifferenceSelect}
           />
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </div>
   );
 }
