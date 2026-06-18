@@ -6,6 +6,7 @@ import type {
   ExtractedPdfPage,
   PdfTextLocation,
 } from '../types/comparison';
+import { classifyDifference } from './differenceClassifier';
 
 type TextBlock = {
   pageNumber: number;
@@ -1311,14 +1312,16 @@ function applyComparisonSettings(
     const ignoredReason = getIgnoredReason(difference, settings, pageHeights);
 
     if (ignoredReason === undefined) {
-      visibleDifferences.push(difference);
+      visibleDifferences.push(classifyDifference(difference));
       return;
     }
 
-    ignoredDifferences.push({
-      ...difference,
-      ignoredReason,
-    });
+    ignoredDifferences.push(
+      classifyDifference({
+        ...difference,
+        ignoredReason,
+      }),
+    );
   });
 
   return {

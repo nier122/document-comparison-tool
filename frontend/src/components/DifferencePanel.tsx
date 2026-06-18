@@ -1,4 +1,10 @@
-import type { Difference, DifferenceTextPart } from '../types/comparison';
+import { useMemo, useState } from 'react';
+import type {
+  Difference,
+  DifferenceCategory,
+  DifferenceSeverity,
+  DifferenceTextPart,
+} from '../types/comparison';
 
 type DifferencePanelProps = {
   currentDifferenceIndex?: number;
@@ -9,6 +15,25 @@ type DifferencePanelProps = {
   onDifferenceSelect?: (difference: Difference) => void;
   onNextDifference?: () => void;
   onPreviousDifference?: () => void;
+};
+
+type SeveritySort = 'document' | 'high-to-low' | 'low-to-high';
+
+const differenceCategories: DifferenceCategory[] = [
+  'Identifier Change',
+  'Quantity Change',
+  'Amount Change',
+  'Date Change',
+  'Text Wording Change',
+  'Metadata Change',
+  'Table Value Change',
+  'Unknown',
+];
+
+const severityRank: Record<DifferenceSeverity, number> = {
+  High: 3,
+  Medium: 2,
+  Low: 1,
 };
 
 function getPageLabel(difference: Difference) {
@@ -54,6 +79,26 @@ function getDifferenceTone(type: Difference['type']) {
       return {
         background: '#fffbeb',
         border: '#f59e0b',
+      };
+  }
+}
+
+function getSeverityStyle(severity: DifferenceSeverity) {
+  switch (severity) {
+    case 'High':
+      return {
+        background: '#fee2e2',
+        color: '#991b1b',
+      };
+    case 'Medium':
+      return {
+        background: '#fef3c7',
+        color: '#92400e',
+      };
+    case 'Low':
+      return {
+        background: '#e5e7eb',
+        color: '#374151',
       };
   }
 }
@@ -204,13 +249,55 @@ function DifferencePanel({
   onNextDifference,
   onPreviousDifference,
 }: DifferencePanelProps) {
-  const selectedDifferenceNumber = currentDifferenceIndex >= 0 ? currentDifferenceIndex + 1 : null;
+  const [categoryFilter, setCategoryFilter] = useState<DifferenceCategory | 'All'>('All');
+  const [severitySort, setSeveritySort] = useState<SeveritySort>('document');
+  const displayedDifferences = useMemo(() => {
+    const filteredDifferences =
+      categoryFilter === 'All'
+        ? differences
+        : differences.filter(
+            (difference) => (difference.category ?? 'Unknown') === categoryFilter,
+          );
+
+    if (severitySort === 'document') {
+      return filteredDifferences;
+    }
+
+    const sortDirection = severitySort === 'high-to-low' ? -1 : 1;
+
+    return [...filteredDifferences].sort((differenceA, differenceB) => {
+      const severityA = severityRank[differenceA.severity ?? 'Low'];
+      const severityB = severityRank[differenceB.severity ?? 'Low'];
+
+      return (severityA - severityB) * sortDirection;
+    });
+  }, [categoryFilter, differences, severitySort]);
+  const displayedDifferenceIndex = selectedDifferenceId
+    ? displayedDifferences.findIndex((difference) => difference.id === selectedDifferenceId)
+    : -1;
+  const selectedDifferenceNumber =
+    displayedDifferenceIndex >= 0
+      ? displayedDifferenceIndex + 1
+      : currentDifferenceIndex >= 0 && categoryFilter === 'All' && severitySort === 'document'
+        ? currentDifferenceIndex + 1
+        : null;
   const currentDifferenceLabel =
     selectedDifferenceNumber === null
-      ? `No difference selected (${differences.length} total)`
-      : `Difference ${selectedDifferenceNumber} of ${differences.length}`;
-  const fieldDifferences = differences.filter((difference) => difference.isFieldDifference);
-  const textDifferences = differences.filter((difference) => !difference.isFieldDifference);
+      ? `No difference selected (${displayedDifferences.length} shown)`
+      : `Difference ${selectedDifferenceNumber} of ${displayedDifferences.length}`;
+  const fieldDifferences = displayedDifferences.filter((difference) => difference.isFieldDifference);
+  const textDifferences = displayedDifferences.filter((difference) => !difference.isFieldDifference);
+
+  function selectDisplayedDifference(nextIndex: number, fallback?: () => void) {
+    const nextDifference = displayedDifferences[nextIndex];
+
+    if (nextDifference !== undefined && onDifferenceSelect !== undefined) {
+      onDifferenceSelect(nextDifference);
+      return;
+    }
+
+    fallback?.();
+  }
 
   function renderDifferenceList(title: string, sectionDifferences: Difference[]) {
     if (sectionDifferences.length === 0) {
@@ -226,6 +313,8 @@ function DifferencePanel({
           {sectionDifferences.map((difference) => {
             const isSelected = difference.id === selectedDifferenceId;
             const tone = getDifferenceTone(difference.type);
+            const category = difference.category ?? 'Unknown';
+            const severity = difference.severity ?? 'Low';
 
             return (
               <li key={difference.id} style={{ marginBottom: '14px' }}>
@@ -257,6 +346,36 @@ function DifferencePanel({
                       <span style={{ color: '#4b5563', marginLeft: '8px' }}>
                         {getPageLabel(difference)}
                       </span>
+                      <div
+                        style={{
+                          alignItems: 'center',
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          gap: '6px',
+                          marginTop: '6px',
+                        }}
+                      >
+                        <span
+                          style={{
+                            background: '#e0f2fe',
+                            color: '#075985',
+                            fontSize: '12px',
+                            padding: '2px 6px',
+                          }}
+                        >
+                          {category}
+                        </span>
+                        <span
+                          style={{
+                            ...getSeverityStyle(severity),
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            padding: '2px 6px',
+                          }}
+                        >
+                          {severity}
+                        </span>
+                      </div>
                     </div>
                     <button
                       type="button"
@@ -333,8 +452,10 @@ function DifferencePanel({
         <div style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
           <button
             type="button"
-            disabled={currentDifferenceIndex <= 0}
-            onClick={onPreviousDifference}
+            disabled={displayedDifferenceIndex <= 0}
+            onClick={() =>
+              selectDisplayedDifference(displayedDifferenceIndex - 1, onPreviousDifference)
+            }
           >
             Previous Difference
           </button>
@@ -342,10 +463,16 @@ function DifferencePanel({
           <button
             type="button"
             disabled={
-              differences.length === 0 ||
-              (currentDifferenceIndex !== -1 && currentDifferenceIndex >= differences.length - 1)
+              displayedDifferences.length === 0 ||
+              (displayedDifferenceIndex !== -1 &&
+                displayedDifferenceIndex >= displayedDifferences.length - 1)
             }
-            onClick={onNextDifference}
+            onClick={() =>
+              selectDisplayedDifference(
+                displayedDifferenceIndex === -1 ? 0 : displayedDifferenceIndex + 1,
+                onNextDifference,
+              )
+            }
           >
             Next Difference
           </button>
@@ -358,9 +485,53 @@ function DifferencePanel({
       ) : (
         <>
           {renderLegend()}
+          <div
+            style={{
+              display: 'grid',
+              gap: '8px',
+              gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
+              marginBottom: '12px',
+            }}
+          >
+            <label style={{ display: 'grid', gap: '4px' }}>
+              <span>Category</span>
+              <select
+                aria-label="Filter differences by category"
+                onChange={(event) =>
+                  setCategoryFilter(event.target.value as DifferenceCategory | 'All')
+                }
+                value={categoryFilter}
+              >
+                <option value="All">All categories</option>
+                {differenceCategories.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={{ display: 'grid', gap: '4px' }}>
+              <span>Sort</span>
+              <select
+                aria-label="Sort differences by severity"
+                onChange={(event) => setSeveritySort(event.target.value as SeveritySort)}
+                value={severitySort}
+              >
+                <option value="document">Document order</option>
+                <option value="high-to-low">Severity: High to Low</option>
+                <option value="low-to-high">Severity: Low to High</option>
+              </select>
+            </label>
+          </div>
           <div style={{ overflow: 'auto', paddingRight: '2px' }}>
-            {renderDifferenceList('Field Differences', fieldDifferences)}
-            {renderDifferenceList('Text Differences', textDifferences)}
+            {displayedDifferences.length === 0 ? (
+              <p>No differences match the selected category.</p>
+            ) : (
+              <>
+                {renderDifferenceList('Field Differences', fieldDifferences)}
+                {renderDifferenceList('Text Differences', textDifferences)}
+              </>
+            )}
           </div>
         </>
       )}

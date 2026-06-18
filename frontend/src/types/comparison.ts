@@ -1,5 +1,17 @@
 export type DifferenceType = 'added' | 'deleted' | 'modified';
 
+export type DifferenceCategory =
+  | 'Identifier Change'
+  | 'Quantity Change'
+  | 'Amount Change'
+  | 'Date Change'
+  | 'Text Wording Change'
+  | 'Metadata Change'
+  | 'Table Value Change'
+  | 'Unknown';
+
+export type DifferenceSeverity = 'High' | 'Medium' | 'Low';
+
 export type DifferenceTextPartType = 'unchanged' | 'added' | 'deleted';
 
 export type DifferenceTextPart = {
@@ -41,6 +53,8 @@ export type PdfTextLocation = {
 export type Difference = {
   id: string;
   type: DifferenceType;
+  category?: DifferenceCategory;
+  severity?: DifferenceSeverity;
   isFieldDifference?: boolean;
   fieldKey?: string;
   fieldLabel?: string;
