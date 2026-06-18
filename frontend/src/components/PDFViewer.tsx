@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { Document, Page } from 'react-pdf';
 import PDFUploadPanel from './PDFUploadPanel';
-import type { Difference, PdfExtractionState, PdfTextLocation } from '../types/comparison';
+import type {
+  Difference,
+  PdfExtractionState,
+  PdfTextLocation,
+  PdfTextSelection,
+} from '../types/comparison';
 
 type PDFViewerProps = {
   title: string;
@@ -12,6 +18,7 @@ type PDFViewerProps = {
   targetPage?: number;
   navigationRequest?: number;
   onFileSelect: (file: File | null) => void;
+  onTextSelect: (selection: PdfTextSelection) => void;
 };
 
 function formatExtractionStatus(status: PdfExtractionState['status']) {
@@ -57,6 +64,7 @@ function PDFViewer({
   targetPage,
   navigationRequest,
   onFileSelect,
+  onTextSelect,
 }: PDFViewerProps) {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
@@ -136,6 +144,31 @@ function PDFViewer({
 
   function fitPageToWidth() {
     setFitToWidth(true);
+  }
+
+  function handleTextPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
+    const selection = window.getSelection();
+    const selectedText = selection?.toString().trim() ?? '';
+    const target = event.target;
+    let text = selectedText;
+
+    if (
+      text.length === 0 &&
+      target instanceof HTMLElement &&
+      target.closest('.react-pdf__Page__textContent') !== null
+    ) {
+      text = target.textContent?.trim() ?? '';
+    }
+
+    if (text.length === 0) {
+      return;
+    }
+
+    onTextSelect({
+      side: highlightSide,
+      pageNumber,
+      text,
+    });
   }
 
   const pageCount = extraction.pageCount ?? numPages;
@@ -241,7 +274,8 @@ function PDFViewer({
               <div
                 data-page-number={pageNumber}
                 data-highlight-layer={highlightLocations.length > 0 ? highlightSide : 'none'}
-                style={{ display: 'inline-block', position: 'relative' }}
+                onPointerUp={handleTextPointerUp}
+                style={{ cursor: 'text', display: 'inline-block', position: 'relative' }}
               >
                 <Page pageNumber={pageNumber} width={pageWidth} />
                 {highlightLocations.map((location, index) => {

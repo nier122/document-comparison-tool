@@ -4,12 +4,14 @@ import type {
   DifferenceCategory,
   DifferenceSeverity,
   DifferenceTextPart,
+  LinkedSelectionState,
 } from '../types/comparison';
 
 type DifferencePanelProps = {
   currentDifferenceIndex?: number;
   differences?: Difference[];
   isCollapsed?: boolean;
+  linkedSelection?: LinkedSelectionState | null;
   selectedDifferenceId?: string;
   onCollapseChange?: (isCollapsed: boolean) => void;
   onDifferenceSelect?: (difference: Difference) => void;
@@ -239,10 +241,56 @@ function renderFieldDifference(difference: Difference) {
   );
 }
 
+function renderLinkedSelection(linkedSelection: LinkedSelectionState) {
+  const difference = linkedSelection.difference;
+
+  return (
+    <div
+      aria-live="polite"
+      style={{
+        background: difference === undefined ? '#f9fafb' : '#eff6ff',
+        border: `1px solid ${difference === undefined ? '#9ca3af' : '#3b82f6'}`,
+        marginBottom: '12px',
+        padding: '10px',
+      }}
+    >
+      <strong>{linkedSelection.message}</strong>
+      <p style={{ color: '#4b5563', margin: '6px 0 0' }}>
+        Selected: {linkedSelection.text}
+      </p>
+      {difference === undefined ? null : (
+        <div style={{ display: 'grid', gap: '6px', marginTop: '10px' }}>
+          <div>
+            <span style={{ color: '#4b5563' }}>Before: </span>
+            {difference.textBefore === undefined ? (
+              <span>Not present in PDF A</span>
+            ) : (
+              <mark style={{ background: '#fecaca', color: '#7f1d1d', padding: '0 4px' }}>
+                {difference.changedTextBefore ?? difference.textBefore}
+              </mark>
+            )}
+          </div>
+          <div>
+            <span style={{ color: '#4b5563' }}>After: </span>
+            {difference.textAfter === undefined ? (
+              <span>Not present in PDF B</span>
+            ) : (
+              <mark style={{ background: '#bbf7d0', color: '#14532d', padding: '0 4px' }}>
+                {difference.changedTextAfter ?? difference.textAfter}
+              </mark>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DifferencePanel({
   currentDifferenceIndex = -1,
   differences = [],
   isCollapsed = false,
+  linkedSelection,
   selectedDifferenceId,
   onCollapseChange,
   onDifferenceSelect,
@@ -479,6 +527,10 @@ function DifferencePanel({
         </div>
         ) : null}
       </div>
+
+      {!isCollapsed && linkedSelection !== null && linkedSelection !== undefined
+        ? renderLinkedSelection(linkedSelection)
+        : null}
 
       {isCollapsed ? null : differences.length === 0 ? (
         <p>No differences detected.</p>

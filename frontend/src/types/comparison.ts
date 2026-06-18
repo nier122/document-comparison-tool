@@ -50,6 +50,18 @@ export type PdfTextLocation = {
   text: string;
 };
 
+export type PdfTextSelection = {
+  side: 'before' | 'after';
+  pageNumber: number;
+  text: string;
+};
+
+export type LinkedSelectionState = {
+  text: string;
+  difference?: Difference;
+  message: string;
+};
+
 export type Difference = {
   id: string;
   type: DifferenceType;

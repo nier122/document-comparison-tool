@@ -7,11 +7,14 @@ import PanelResizeHandle from './PanelResizeHandle';
 import PDFExtractionDebugView from './PDFExtractionDebugView';
 import PDFViewer from './PDFViewer';
 import { defaultComparisonSettings, generateComparisonResult } from '../services/diffService';
+import { findLinkedDifference } from '../services/linkedSelectionService';
 import type {
   ComparisonSettings,
   Difference,
   ExtractedPdfPage,
+  LinkedSelectionState,
   PdfExtractionState,
+  PdfTextSelection,
   PdfTextLocation,
 } from '../types/comparison';
 
@@ -348,6 +351,7 @@ function SideBySideViewer() {
   const [pdfA, setPdfA] = useState<File | null>(null);
   const [pdfB, setPdfB] = useState<File | null>(null);
   const [selectedDifference, setSelectedDifference] = useState<Difference | null>(null);
+  const [linkedSelection, setLinkedSelection] = useState<LinkedSelectionState | null>(null);
   const [navigationRequest, setNavigationRequest] = useState(0);
   const [showDebugView, setShowDebugView] = useState(false);
   const [isDifferencePanelCollapsed, setIsDifferencePanelCollapsed] = useState(false);
@@ -416,8 +420,30 @@ function SideBySideViewer() {
   }, []);
 
   function handleDifferenceSelect(difference: Difference) {
+    setLinkedSelection(null);
     setSelectedDifference(difference);
     setNavigationRequest((currentRequest) => currentRequest + 1);
+  }
+
+  function handlePdfTextSelect(selection: PdfTextSelection) {
+    const linkedDifference = findLinkedDifference(differences, selection);
+
+    if (linkedDifference === undefined) {
+      setSelectedDifference(null);
+      setLinkedSelection({
+        text: selection.text,
+        message: 'No difference found for selected text.',
+      });
+      return;
+    }
+
+    setSelectedDifference(linkedDifference);
+    setNavigationRequest((currentRequest) => currentRequest + 1);
+    setLinkedSelection({
+      text: selection.text,
+      difference: linkedDifference,
+      message: 'Matching difference found.',
+    });
   }
 
   function goToDifferenceAtIndex(nextIndex: number) {
@@ -609,6 +635,7 @@ function SideBySideViewer() {
             targetPage={selectedDifference?.pageA}
             navigationRequest={navigationRequest}
             onFileSelect={setPdfA}
+            onTextSelect={handlePdfTextSelect}
           />
         </div>
         <PanelResizeHandle
@@ -634,6 +661,7 @@ function SideBySideViewer() {
             targetPage={selectedDifference?.pageB}
             navigationRequest={navigationRequest}
             onFileSelect={setPdfB}
+            onTextSelect={handlePdfTextSelect}
           />
         </div>
         <PanelResizeHandle
@@ -655,6 +683,7 @@ function SideBySideViewer() {
             currentDifferenceIndex={selectedDifferenceIndex}
             differences={differences}
             isCollapsed={isDifferencePanelCollapsed}
+            linkedSelection={linkedSelection}
             selectedDifferenceId={selectedDifference?.id}
             onCollapseChange={setIsDifferencePanelCollapsed}
             onDifferenceSelect={handleDifferenceSelect}
@@ -717,6 +746,7 @@ function SideBySideViewer() {
         ignoredDifferences.length > 0 ? (
           <DifferencePanel
             differences={ignoredDifferences}
+            linkedSelection={linkedSelection}
             selectedDifferenceId={selectedDifference?.id}
             onDifferenceSelect={handleDifferenceSelect}
           />
