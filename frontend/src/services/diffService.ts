@@ -56,6 +56,11 @@ type BlockUnit = {
   locations: PdfTextLocation[];
 };
 
+type TextCell = {
+  text: string;
+  location: PdfTextLocation;
+};
+
 type DiffOperation =
   | {
       type: 'equal';
@@ -74,7 +79,7 @@ type DiffOperation =
 const MIN_MEANINGFUL_KEY_LENGTH = 3;
 const MODIFIED_SIMILARITY_THRESHOLD = 0.35;
 const TABLE_LINE_Y_TOLERANCE = 3;
-const MAX_MULTI_WORD_FIELD_VALUE_LOCATIONS = 4;
+const MAX_MULTI_WORD_FIELD_VALUE_LOCATIONS = 12;
 export const defaultComparisonSettings: ComparisonSettings = {
   importantFields: [
     { key: 'poNumber', label: 'PO Number', enabled: true, isCustom: false },
@@ -134,9 +139,9 @@ const FIELD_DEFINITIONS: FieldDefinition[] = [
   {
     key: 'total',
     label: 'Total',
-    labelPattern: String.raw`(?:Grand\s+)?Total`,
+    labelPattern: String.raw`(?:Grand|Net|Order)\s+Total`,
     valuePattern: String.raw`(?:[$\u20ac\u00a3]\s*)?-?\d{1,3}(?:,\d{3})*(?:\.\d+)?|-?\d+(?:\.\d+)?`,
-    aliases: ['total', 'grand total', 'net total'],
+    aliases: ['grand total', 'net total', 'order total'],
   },
   {
     key: 'quantity',
@@ -183,16 +188,16 @@ const FIELD_DEFINITIONS: FieldDefinition[] = [
   {
     key: 'unitPrice',
     label: 'Unit Price',
-    labelPattern: String.raw`(?:Unit\s*Price|Price\s*Per\s*Unit|Rate)`,
+    labelPattern: String.raw`(?:Unit\s*Price|Price\s*Per\s*Unit|Price|Rate)`,
     valuePattern: String.raw`(?:[$\u20ac\u00a3]\s*)?-?\d{1,3}(?:,\d{3})*(?:\.\d+)?|-?\d+(?:\.\d+)?`,
-    aliases: ['unit price', 'price per unit', 'rate'],
+    aliases: ['unit price', 'price per unit', 'price', 'rate'],
   },
   {
     key: 'lineTotal',
     label: 'Line Total',
-    labelPattern: String.raw`(?:Line\s*Total|Extended\s*Amount|Ext\.?\s*Amount)`,
+    labelPattern: String.raw`(?:Line\s*Total|Extended\s*Amount|Ext\.?\s*Amount|Total)`,
     valuePattern: String.raw`(?:[$\u20ac\u00a3]\s*)?-?\d{1,3}(?:,\d{3})*(?:\.\d+)?|-?\d+(?:\.\d+)?`,
-    aliases: ['line total', 'extended amount', 'ext amount'],
+    aliases: ['line total', 'extended amount', 'ext amount', 'total'],
   },
 ];
 
@@ -333,13 +338,189 @@ function getCanonicalFieldDefinition(label: string, fieldDefinitions: FieldDefin
     return undefined;
   }
 
-  return fieldDefinitions.find((fieldDefinition) =>
-    fieldDefinition.aliases.some((alias) => {
-      const aliasKey = createComparisonKey(alias);
+  const aliases = fieldDefinitions
+    .flatMap((fieldDefinition) =>
+      fieldDefinition.aliases.map((alias) => ({
+        aliasKey: createComparisonKey(alias),
+        fieldDefinition,
+      })),
+    )
+    .sort((aliasA, aliasB) => aliasB.aliasKey.length - aliasA.aliasKey.length);
 
-      return labelKey === aliasKey || labelKey.endsWith(` ${aliasKey}`) || aliasKey.endsWith(` ${labelKey}`);
-    }),
-  );
+  return aliases.find(({ aliasKey }) => labelKey === aliasKey)?.fieldDefinition;
+}
+
+function getLabelAtStart(text: string, fieldDefinitions: FieldDefinition[]) {
+  const normalizedText = normalizeDisplayText(text);
+  const matches = fieldDefinitions
+    .flatMap((fieldDefinition) =>
+      fieldDefinition.aliases.map((alias) => {
+        const pattern = new RegExp(
+          String.raw`^${escapeRegExp(alias).replace(/\s+/g, String.raw`\s+`)}(?:\s*[:#-]\s*|\s+|$)`,
+          'i',
+        );
+        const match = pattern.exec(normalizedText);
+
+        return match === null
+          ? null
+          : {
+              fieldDefinition,
+              labelText: match[0].replace(/\s*[:#-]\s*$/, '').trim(),
+              valueText: normalizedText.slice(match[0].length).trim(),
+            };
+      }),
+    )
+    .filter((match): match is NonNullable<typeof match> => match !== null)
+    .sort((matchA, matchB) => matchB.labelText.length - matchA.labelText.length);
+
+  return matches[0];
+}
+
+function createVirtualLocation(
+  location: PdfTextLocation,
+  text: string,
+  startOffset: number,
+  endOffset: number,
+) {
+  const sourceLength = Math.max(location.text.length, 1);
+  const x = location.x + location.width * (startOffset / sourceLength);
+  const width = location.width * ((endOffset - startOffset) / sourceLength);
+
+  return {
+    ...location,
+    text,
+    x,
+    width: Math.max(width, 1),
+  };
+}
+
+function findNextExplicitLabel(
+  text: string,
+  fieldDefinitions: FieldDefinition[],
+  fromIndex: number,
+) {
+  const matches = fieldDefinitions
+    .flatMap((fieldDefinition) =>
+      fieldDefinition.aliases.map((alias) => {
+        const pattern = new RegExp(
+          String.raw`\b${escapeRegExp(alias).replace(/\s+/g, String.raw`\s+`)}\s*[:#]`,
+          'gi',
+        );
+        pattern.lastIndex = fromIndex;
+        const match = pattern.exec(text);
+
+        return match === null
+          ? null
+          : {
+              index: match.index,
+              length: match[0].length,
+            };
+      }),
+    )
+    .filter((match): match is { index: number; length: number } => match !== null)
+    .sort((matchA, matchB) => matchA.index - matchB.index || matchB.length - matchA.length);
+
+  return matches[0];
+}
+
+function isLabelSequence(text: string, fieldDefinitions: FieldDefinition[]) {
+  let remainingText = normalizeDisplayText(text);
+  let labelCount = 0;
+
+  while (remainingText.length > 0) {
+    const labelMatch = getLabelAtStart(remainingText, fieldDefinitions);
+
+    if (labelMatch === undefined) {
+      return false;
+    }
+
+    labelCount += 1;
+    remainingText = labelMatch.valueText;
+  }
+
+  return labelCount > 0;
+}
+
+function splitLocationIntoCells(
+  location: PdfTextLocation,
+  fieldDefinitions: FieldDefinition[],
+): TextCell[] {
+  const cells: TextCell[] = [];
+  const sourceText = location.text;
+  const delimiterPattern = /\s*\|\s*/g;
+  let cellStart = 0;
+  let delimiterMatch: RegExpExecArray | null;
+
+  function addCell(start: number, end: number) {
+    const rawText = sourceText.slice(start, end);
+    const text = normalizeDisplayText(rawText);
+
+    if (text.length === 0) {
+      return;
+    }
+
+    const trimmedStart = start + Math.max(rawText.search(/\S/), 0);
+    const labelMatch = getLabelAtStart(text, fieldDefinitions);
+
+    if (labelMatch !== undefined && labelMatch.valueText.length > 0) {
+      const valueOffset = text.indexOf(labelMatch.valueText);
+      const labelEnd = trimmedStart + Math.max(valueOffset, labelMatch.labelText.length);
+
+      if (isLabelSequence(labelMatch.valueText, fieldDefinitions)) {
+        cells.push({
+          text: labelMatch.labelText,
+          location: createVirtualLocation(location, labelMatch.labelText, trimmedStart, labelEnd),
+        });
+        addCell(labelEnd, end);
+        return;
+      }
+
+      const nextLabel = findNextExplicitLabel(sourceText, fieldDefinitions, labelEnd);
+      const valueEnd =
+        nextLabel !== undefined && nextLabel.index < end ? nextLabel.index : end;
+      const valueText = normalizeDisplayText(sourceText.slice(labelEnd, valueEnd));
+
+      cells.push({
+        text: labelMatch.labelText,
+        location: createVirtualLocation(location, labelMatch.labelText, trimmedStart, labelEnd),
+      });
+
+      if (valueText.length > 0) {
+        cells.push({
+          text: valueText,
+          location: createVirtualLocation(
+            location,
+            valueText,
+            labelEnd,
+            Math.max(valueEnd, labelEnd + 1),
+          ),
+        });
+      }
+
+      if (nextLabel !== undefined && nextLabel.index < end) {
+        addCell(nextLabel.index, end);
+      }
+      return;
+    }
+
+    cells.push({
+      text,
+      location: createVirtualLocation(location, text, trimmedStart, end),
+    });
+  }
+
+  while ((delimiterMatch = delimiterPattern.exec(sourceText)) !== null) {
+    addCell(cellStart, delimiterMatch.index);
+    cellStart = delimiterMatch.index + delimiterMatch[0].length;
+  }
+
+  addCell(cellStart, sourceText.length);
+
+  return cells;
+}
+
+function getLineCells(line: TextLine, fieldDefinitions: FieldDefinition[]) {
+  return line.locations.flatMap((location) => splitLocationIntoCells(location, fieldDefinitions));
 }
 
 function doesValueMatchField(fieldDefinition: FieldDefinition, value: string) {
@@ -355,7 +536,8 @@ function isMultiWordField(fieldDefinition: FieldDefinition) {
     fieldDefinition.key === 'customer' ||
     fieldDefinition.key === 'supplier' ||
     fieldDefinition.key === 'itemDescription' ||
-    fieldDefinition.key === 'remarks'
+    fieldDefinition.key === 'remarks' ||
+    fieldDefinition.key.startsWith('custom:')
   );
 }
 
@@ -464,6 +646,16 @@ function getValueLocationsAfterLabel(
       break;
     }
 
+    if (isMultiWordField(fieldDefinition)) {
+      valueLocations.push(location);
+
+      if (valueLocations.length >= MAX_MULTI_WORD_FIELD_VALUE_LOCATIONS) {
+        break;
+      }
+
+      continue;
+    }
+
     const nextValueLocations = [...valueLocations, location];
     const singleValue = normalizeDisplayText(location.text);
     const combinedValue = normalizeDisplayText(nextValueLocations.map((valueLocation) => valueLocation.text).join(' '));
@@ -481,15 +673,7 @@ function getValueLocationsAfterLabel(
       return nextValueLocations;
     }
 
-    if (!isMultiWordField(fieldDefinition)) {
-      break;
-    }
-
-    valueLocations.push(location);
-
-    if (valueLocations.length >= MAX_MULTI_WORD_FIELD_VALUE_LOCATIONS) {
-      break;
-    }
+    break;
   }
 
   return valueLocations;
@@ -535,61 +719,29 @@ function extractInlineFieldCandidates(
   fieldDefinitions: FieldDefinition[],
 ) {
   const candidates: FieldCandidate[] = [];
+  const cells = getLineCells(line, fieldDefinitions);
+  const locations = cells.map((cell) => cell.location);
 
-  fieldDefinitions.forEach((fieldDefinition) => {
-    const pattern = getFieldPattern(fieldDefinition);
-    let match: RegExpExecArray | null;
-
-    while ((match = pattern.exec(line.text)) !== null) {
-      const sourceText = normalizeDisplayText(match[0]);
-      const value = normalizeDisplayText(match[2] ?? '');
-
-      addFieldCandidate(candidates, {
-        key: fieldDefinition.key,
-        label: fieldDefinition.label,
-        value,
-        pageNumber: page.pageNumber,
-        sourceText,
-        locations: findLocationsForText(line.locations, value),
-      });
-    }
-  });
-
-  return candidates;
-}
-
-function extractRowFieldCandidates(
-  page: ExtractedPdfPage,
-  line: TextLine,
-  fieldDefinitions: FieldDefinition[],
-) {
-  const candidates: FieldCandidate[] = [];
-
-  line.locations.forEach((location, locationIndex) => {
-    fieldDefinitions.forEach((fieldDefinition) => {
-      const embeddedCandidate = getEmbeddedFieldCandidate(fieldDefinition, location, page.pageNumber);
-
-      if (embeddedCandidate !== null) {
-        addFieldCandidate(candidates, embeddedCandidate);
-      }
-    });
-
+  cells.forEach((cell, cellIndex) => {
     const adjacentLabelText = normalizeDisplayText(
-      [location.text, line.locations[locationIndex + 1]?.text].filter(Boolean).join(' '),
+      [cell.text, cells[cellIndex + 1]?.text].filter(Boolean).join(' '),
     );
-    const adjacentFieldDefinition = getCanonicalFieldDefinition(adjacentLabelText, fieldDefinitions);
-    const singleFieldDefinition = getCanonicalFieldDefinition(location.text, fieldDefinitions);
+    const adjacentFieldDefinition = getCanonicalFieldDefinition(
+      adjacentLabelText,
+      fieldDefinitions,
+    );
+    const singleFieldDefinition = getCanonicalFieldDefinition(cell.text, fieldDefinitions);
     const fieldDefinition = adjacentFieldDefinition ?? singleFieldDefinition;
-    const valueStartIndex = adjacentFieldDefinition === undefined ? locationIndex + 1 : locationIndex + 2;
+    const valueStartIndex = adjacentFieldDefinition === undefined ? cellIndex + 1 : cellIndex + 2;
 
-    if (fieldDefinition === undefined || valueStartIndex >= line.locations.length) {
+    if (fieldDefinition === undefined || valueStartIndex >= cells.length) {
       return;
     }
 
     const valueLocations = getValueLocationsAfterLabel(
       fieldDefinition,
       fieldDefinitions,
-      line.locations,
+      locations,
       valueStartIndex,
     );
 
@@ -617,14 +769,15 @@ function extractRowFieldCandidates(
 
 function getHeaderColumns(headerLine: TextLine, fieldDefinitions: FieldDefinition[]) {
   const columns: { fieldDefinition: FieldDefinition; x: number }[] = [];
+  const cells = getLineCells(headerLine, fieldDefinitions);
 
-  headerLine.locations.forEach((location, locationIndex) => {
+  cells.forEach((cell, cellIndex) => {
     const adjacentLabelText = normalizeDisplayText(
-      [location.text, headerLine.locations[locationIndex + 1]?.text].filter(Boolean).join(' '),
+      [cell.text, cells[cellIndex + 1]?.text].filter(Boolean).join(' '),
     );
     const fieldDefinition =
       getCanonicalFieldDefinition(adjacentLabelText, fieldDefinitions) ??
-      getCanonicalFieldDefinition(location.text, fieldDefinitions);
+      getCanonicalFieldDefinition(cell.text, fieldDefinitions);
 
     if (fieldDefinition === undefined) {
       return;
@@ -632,7 +785,7 @@ function getHeaderColumns(headerLine: TextLine, fieldDefinitions: FieldDefinitio
 
     columns.push({
       fieldDefinition,
-      x: location.x + location.width / 2,
+      x: cell.location.x + cell.location.width / 2,
     });
   });
 
@@ -660,7 +813,9 @@ function extractTableFieldCandidates(
     const valueLines = lines.slice(lineIndex + 1, lineIndex + 4).filter((valueLine) => valueLine.y < line.y);
 
     valueLines.forEach((valueLine) => {
-      valueLine.locations.filter(isLikelyValueLocation).forEach((location) => {
+      const valueCells = getLineCells(valueLine, fieldDefinitions);
+
+      valueCells.map((cell) => cell.location).filter(isLikelyValueLocation).forEach((location) => {
         const locationCenterX = location.x + location.width / 2;
         const nearestColumn = columns.reduce((nearest, column) => {
           const nearestDistance = Math.abs(nearest.x - locationCenterX);
@@ -732,7 +887,6 @@ function extractStructuredFields(
     const lines = groupLocationsIntoLines(page);
     const candidates = [
       ...lines.flatMap((line) => extractInlineFieldCandidates(page, line, fieldDefinitions)),
-      ...lines.flatMap((line) => extractRowFieldCandidates(page, line, fieldDefinitions)),
       ...extractTableFieldCandidates(page, lines, fieldDefinitions),
     ];
 
@@ -846,7 +1000,11 @@ function compareStructuredFields(
   return fieldDifferences;
 }
 
-function removeFieldSourcesFromPages(pages: ExtractedPdfPage[], fields: Map<string, ExtractedField>) {
+function removeFieldSourcesFromPages(
+  pages: ExtractedPdfPage[],
+  fields: Map<string, ExtractedField>,
+  fieldDefinitions: FieldDefinition[],
+) {
   const fieldLocationKeys = new Set(
     [...fields.values()].flatMap((field) => field.locations.map((location) => getLocationIdentity(location))),
   );
@@ -862,7 +1020,11 @@ function removeFieldSourcesFromPages(pages: ExtractedPdfPage[], fields: Map<stri
     return {
       ...page,
       text: normalizeDisplayText(text),
-      locations: page.locations.filter((location) => !fieldLocationKeys.has(getLocationIdentity(location))),
+      locations: page.locations
+        .flatMap((location) =>
+          splitLocationIntoCells(location, fieldDefinitions).map((cell) => cell.location),
+        )
+        .filter((location) => !fieldLocationKeys.has(getLocationIdentity(location))),
     };
   });
 }
@@ -1175,6 +1337,10 @@ function createModifiedDifference(
   };
 }
 
+function areBlockGroupsEquivalent(blocksA: TextBlock[], blocksB: TextBlock[]) {
+  return createComparisonKey(joinBlockText(blocksA)) === createComparisonKey(joinBlockText(blocksB));
+}
+
 function pushMeaningfulChanges(
   differences: Difference[],
   deletedBlocks: TextBlock[],
@@ -1193,6 +1359,10 @@ function pushMeaningfulChanges(
 
   if (addedBlocks.length === 0) {
     differences.push(createDeletedDifference(nextId, deletedBlocks));
+    return;
+  }
+
+  if (areBlockGroupsEquivalent(deletedBlocks, addedBlocks)) {
     return;
   }
 
@@ -1342,8 +1512,8 @@ export function generateComparisonResult(
   const fieldsA = extractStructuredFields(pdfAPages, fieldDefinitions);
   const fieldsB = extractStructuredFields(pdfBPages, fieldDefinitions);
   const fieldDifferences = compareStructuredFields(fieldsA, fieldsB);
-  const filteredPdfAPages = removeFieldSourcesFromPages(pdfAPages, fieldsA);
-  const filteredPdfBPages = removeFieldSourcesFromPages(pdfBPages, fieldsB);
+  const filteredPdfAPages = removeFieldSourcesFromPages(pdfAPages, fieldsA, fieldDefinitions);
+  const filteredPdfBPages = removeFieldSourcesFromPages(pdfBPages, fieldsB, fieldDefinitions);
   const blocksA = createBlocks(filteredPdfAPages);
   const blocksB = createBlocks(filteredPdfBPages);
   const operations = diffBlocks(blocksA, blocksB);
