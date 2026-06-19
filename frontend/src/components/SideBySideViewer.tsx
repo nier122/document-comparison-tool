@@ -26,6 +26,7 @@ const initialExtractionState: PdfExtractionState = {
 
 const failedExtractionState: PdfExtractionState = {
   status: 'failed',
+  extractionMode: 'failed',
   pages: [],
   pageCount: null,
 };
@@ -298,6 +299,36 @@ async function extractPdfText(file: File): Promise<ExtractedPdfPage[]> {
   return removeBoilerplateLines(pages);
 }
 
+type BackendExtractionResponse = {
+  extractionMode: 'text' | 'ocr' | 'failed';
+  pageCount: number | null;
+  pages: ExtractedPdfPage[];
+  error?: {
+    message?: string;
+  };
+};
+
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ?? '';
+
+async function analyzePdf(file: File): Promise<BackendExtractionResponse> {
+  const formData = new FormData();
+  formData.append('document', file);
+
+  const response = await fetch(`${API_BASE_URL}/api/extractions/analyze`, {
+    method: 'POST',
+    body: formData,
+  });
+  const result = (await response.json()) as BackendExtractionResponse & {
+    message?: string;
+  };
+
+  if (!response.ok) {
+    throw new Error(result.message ?? 'The backend could not analyze this PDF.');
+  }
+
+  return result;
+}
+
 function usePdfTextExtraction(file: File | null) {
   const [extraction, setExtraction] = useState<PdfExtractionState>(initialExtractionState);
 
@@ -317,24 +348,74 @@ function usePdfTextExtraction(file: File | null) {
       pageCount: null,
     });
 
-    extractPdfText(file)
-      .then((pages) => {
+    analyzePdf(file)
+      .catch(async (error: unknown) => {
+        try {
+          const pages = await extractPdfText(file);
+          const hasLocalText = pages.some((page) => page.text.replace(/\s+/g, '').length >= 12);
+
+          if (!hasLocalText) {
+            throw error;
+          }
+
+          return {
+            extractionMode: 'text' as const,
+            pageCount: pages.length,
+            pages,
+          };
+        } catch {
+          throw error;
+        }
+      })
+      .then(async (result) => {
+        if (result.extractionMode !== 'text') {
+          return result;
+        }
+
+        const pages = await extractPdfText(file);
+
+        return {
+          ...result,
+          pages,
+          pageCount: pages.length,
+        };
+      })
+      .then((result) => {
         if (!isCurrent) {
+          return;
+        }
+
+        if (result.extractionMode === 'failed') {
+          setExtraction({
+            status: 'failed',
+            extractionMode: 'failed',
+            pages: [],
+            pageCount: result.pageCount,
+            errorMessage:
+              result.error?.message ?? 'Document extraction failed.',
+          });
           return;
         }
 
         setExtraction({
           status: 'extracted',
-          pages,
-          pageCount: pages.length,
+          extractionMode: result.extractionMode,
+          pages: result.pages,
+          pageCount: result.pageCount,
         });
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (!isCurrent) {
           return;
         }
 
-        setExtraction(failedExtractionState);
+        setExtraction({
+          ...failedExtractionState,
+          errorMessage:
+            error instanceof Error
+              ? error.message
+              : 'Document extraction failed.',
+        });
       });
 
     return () => {

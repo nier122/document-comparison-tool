@@ -1,13 +1,26 @@
 {
-  "name": "backend",
+  "name": "document-comparison-backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Backend extraction and OCR orchestration foundation for the document comparison tool.",
+  "main": "src/server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "test": "node --test"
   },
-  "keywords": [],
+  "keywords": [
+    "pdf",
+    "ocr",
+    "document-comparison"
+  ],
   "author": "",
   "license": "ISC",
-  "type": "commonjs"
+  "type": "commonjs",
+  "dependencies": {
+    "@google-cloud/documentai": "^9.6.2",
+    "dotenv": "^17.4.2",
+    "express": "^5.1.0",
+    "multer": "^2.0.2",
+    "pdfjs-dist": "5.4.296"
+  }
 }

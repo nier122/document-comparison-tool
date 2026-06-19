@@ -92,6 +92,7 @@ export type ComparisonResult = {
 };
 
 export type ExtractionStatus = 'not-extracted' | 'extracting' | 'extracted' | 'failed';
+export type ExtractionMode = 'text' | 'ocr' | 'failed';
 
 export type ExtractedPdfPage = {
   pageNumber: number;
@@ -103,6 +104,8 @@ export type ExtractedPdfPage = {
 
 export type PdfExtractionState = {
   status: ExtractionStatus;
+  extractionMode?: ExtractionMode;
+  errorMessage?: string;
   pages: ExtractedPdfPage[];
   pageCount: number | null;
 };

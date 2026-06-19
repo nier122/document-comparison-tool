@@ -9,10 +9,10 @@
 - Difference navigation panel
 
 Current implementation focus:
-- Generated PDFs only
-- Frontend-only comparison workflow
-- No OCR
-- No backend services
+- Generated PDFs remain the primary comparison path
+- Backend document analysis for generated and scanned PDFs
+- Backend selectable-text detection
+- Google Document AI OCR for scanned PDFs
 
 ## Phase 2 - Extraction Quality
 - Improve coordinate-based text extraction
@@ -23,7 +23,9 @@ Current implementation focus:
 - Search within compared documents
 
 ## Phase 3 - OCR Support
-- Scanned PDF OCR
+- Selectable-text detection and extraction-mode status
+- Google Document AI service integration
+- Scanned PDF OCR with text coordinates
 - OCR quality review and correction workflows
 - Preserve generated-PDF comparison as the primary stable path
 

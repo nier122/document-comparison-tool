@@ -41,21 +41,23 @@ Included:
 - Page synchronization
 
 Excluded:
-- OCR
+- OCR providers other than Google Document AI
 - User authentication
 - Team collaboration
 - Standards memory
 - Compliance checking
 - Multi-document comparison
-- Backend services
+- Handwritten OCR
 
 ## Current Implementation Focus
 
-The current implementation should remain focused on generated PDFs only.
+The comparison implementation remains focused on generated PDFs.
 
-Do not add OCR, handwritten recognition, or backend services during the current MVP phase.
+The backend detects whether a PDF has meaningful selectable text.
+Generated PDFs use the existing PDF.js extraction path. Scanned PDFs use Google Document AI OCR only after text detection fails.
+Handwritten recognition remains deferred.
 
-Generated-PDF extraction should continue improving before scanned-PDF workflows are introduced.
+Generated-PDF extraction remains the preferred zero-cost path and should continue improving alongside scanned-PDF OCR.
 
 ## Future Extraction Requirements
 
@@ -77,7 +79,7 @@ Frontend:
 Backend:
 - Node.js
 - Express
-- Backend work is deferred until the frontend comparison workflow is validated.
+- Document analysis and Google Document AI orchestration
 
 Comparison:
 - diff-match-patch
@@ -86,10 +88,10 @@ Comparison:
 
 Extraction:
 - Coordinate-based text ordering for generated PDFs
-- Future table-aware extraction
-- Future header/footer detection
+- Table-aware extraction
+- Header/footer detection
+- Google Document AI OCR for scanned PDFs
 - Future column-aware reading order
-- Future OCR for scanned PDFs
 - Future advanced OCR for handwritten PDFs
 
 Deployment:

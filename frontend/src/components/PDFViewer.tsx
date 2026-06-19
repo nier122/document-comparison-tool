@@ -34,6 +34,22 @@ function formatExtractionStatus(status: PdfExtractionState['status']) {
   }
 }
 
+function formatExtractionMode(extraction: PdfExtractionState) {
+  if (extraction.extractionMode === 'ocr') {
+    return 'Google OCR';
+  }
+
+  if (extraction.extractionMode === 'text') {
+    return 'Selectable text';
+  }
+
+  if (extraction.extractionMode === 'failed') {
+    return 'Failed';
+  }
+
+  return 'Pending';
+}
+
 function getHighlightLocations(
   selectedDifference: Difference | null,
   highlightSide: PDFViewerProps['highlightSide'],
@@ -227,8 +243,13 @@ function PDFViewer({
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginTop: '10px' }}>
         <span>Extraction: {formatExtractionStatus(extraction.status)}</span>
+        <span>Read by: {formatExtractionMode(extraction)}</span>
         <span>Pages: {pageCount ?? 'Unknown'}</span>
-        {extraction.status === 'failed' ? <p>Text extraction failed for this PDF.</p> : null}
+        {extraction.status === 'failed' ? (
+          <p style={{ color: '#b91c1c', margin: 0 }}>
+            {extraction.errorMessage ?? 'Text extraction failed for this PDF.'}
+          </p>
+        ) : null}
       </div>
 
       {file === null ? (
