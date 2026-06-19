@@ -205,6 +205,20 @@ function renderLegend() {
 }
 
 function renderFieldDifference(difference: Difference) {
+  const confidenceLevel = difference.fieldMatchConfidenceLevel;
+  const confidenceColor =
+    confidenceLevel === 'high'
+      ? '#166534'
+      : confidenceLevel === 'medium'
+        ? '#92400e'
+        : '#9a3412';
+  const confidenceBackground =
+    confidenceLevel === 'high'
+      ? '#dcfce7'
+      : confidenceLevel === 'medium'
+        ? '#fef3c7'
+        : '#ffedd5';
+
   return (
     <div
       style={{
@@ -216,7 +230,33 @@ function renderFieldDifference(difference: Difference) {
         padding: '10px',
       }}
     >
-      <strong>{difference.fieldLabel ?? 'Detected Field'}</strong>
+      <div
+        style={{
+          alignItems: 'center',
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '8px',
+          justifyContent: 'space-between',
+        }}
+      >
+        <strong>{difference.fieldLabel ?? 'Detected Field'}</strong>
+        {difference.fieldMatchConfidence === undefined ? null : (
+          <span
+            title="Confidence that the fields in PDF A and PDF B are counterparts"
+            style={{
+              background: confidenceBackground,
+              borderRadius: '999px',
+              color: confidenceColor,
+              fontSize: '12px',
+              fontWeight: 600,
+              padding: '2px 8px',
+            }}
+          >
+            {confidenceLevel === 'low' ? 'Possible counterpart' : 'Field match'} ·{' '}
+            {Math.round(difference.fieldMatchConfidence * 100)}% {confidenceLevel}
+          </span>
+        )}
+      </div>
       <div>
         <span style={{ color: '#4b5563' }}>Before: </span>
         {difference.textBefore === undefined ? (

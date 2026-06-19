@@ -70,6 +70,8 @@ export type Difference = {
   isFieldDifference?: boolean;
   fieldKey?: string;
   fieldLabel?: string;
+  fieldMatchConfidence?: number;
+  fieldMatchConfidenceLevel?: 'high' | 'medium' | 'low';
   pageA?: number;
   pageB?: number;
   textBefore?: string;

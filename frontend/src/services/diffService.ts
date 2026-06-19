@@ -7,6 +7,8 @@ import type {
   PdfTextLocation,
 } from '../types/comparison';
 import { classifyDifference } from './differenceClassifier';
+import { matchSemanticFields } from './fieldMatchingService';
+import type { FieldMatchConfidenceLevel } from './fieldMatchingService';
 
 type TextBlock = {
   pageNumber: number;
@@ -27,6 +29,7 @@ type FieldDefinition = {
 type ExtractedField = {
   key: string;
   label: string;
+  aliases: string[];
   values: string[];
   normalizedValues: string[];
   pageNumber: number;
@@ -37,6 +40,7 @@ type ExtractedField = {
 type FieldCandidate = {
   key: string;
   label: string;
+  aliases: string[];
   value: string;
   pageNumber: number;
   sourceText: string;
@@ -113,7 +117,16 @@ const FIELD_DEFINITIONS: FieldDefinition[] = [
     label: 'PO Number',
     labelPattern: String.raw`(?:P\.?\s*O\.?|PO|Purchase\s+Order)\s*(?:No\.?|Number)?`,
     valuePattern: String.raw`[A-Z0-9][A-Z0-9./-]*`,
-    aliases: ['po', 'po no', 'po number', 'purchase order', 'purchase order no', 'purchase order number'],
+    aliases: [
+      'po',
+      'po no',
+      'po number',
+      'purchase order',
+      'purchase order no',
+      'purchase order number',
+      'order no',
+      'order number',
+    ],
   },
   {
     key: 'invoiceNumber',
@@ -569,6 +582,7 @@ function getEmbeddedFieldCandidate(
   return {
     key: fieldDefinition.key,
     label: fieldDefinition.label,
+    aliases: fieldDefinition.aliases,
     value,
     pageNumber,
     sourceText: match[0],
@@ -757,6 +771,7 @@ function extractInlineFieldCandidates(
     addFieldCandidate(candidates, {
       key: fieldDefinition.key,
       label: fieldDefinition.label,
+      aliases: fieldDefinition.aliases,
       value,
       pageNumber: page.pageNumber,
       sourceText: value,
@@ -833,6 +848,7 @@ function extractTableFieldCandidates(
         addFieldCandidate(candidates, {
           key: nearestColumn.fieldDefinition.key,
           label: nearestColumn.fieldDefinition.label,
+          aliases: nearestColumn.fieldDefinition.aliases,
           value,
           pageNumber: page.pageNumber,
           sourceText: value,
@@ -858,6 +874,7 @@ function mergeFieldCandidate(fieldsByKey: Map<string, ExtractedField>, candidate
     fieldsByKey.set(candidate.key, {
       key: candidate.key,
       label: candidate.label,
+      aliases: candidate.aliases,
       values: [candidate.value],
       normalizedValues: [normalizedValue],
       pageNumber: candidate.pageNumber,
@@ -919,10 +936,17 @@ function createFieldDifference(
   fieldKey: string,
   fieldA: ExtractedField | undefined,
   fieldB: ExtractedField | undefined,
+  fieldLabelOverride?: string,
+  fieldMatchConfidence?: number,
+  fieldMatchConfidenceLevel?: FieldMatchConfidenceLevel,
 ): Difference {
-  const fieldLabel = fieldA?.label ?? fieldB?.label ?? fieldKey;
+  const fieldLabel = fieldLabelOverride ?? fieldA?.label ?? fieldB?.label ?? fieldKey;
   const valueA = getFieldDisplayValue(fieldA);
   const valueB = getFieldDisplayValue(fieldB);
+  const matchMetadata = {
+    fieldMatchConfidence,
+    fieldMatchConfidenceLevel,
+  };
 
   if (fieldA === undefined) {
     return {
@@ -931,6 +955,7 @@ function createFieldDifference(
       isFieldDifference: true,
       fieldKey,
       fieldLabel,
+      ...matchMetadata,
       pageB: fieldB?.pageNumber,
       textAfter: valueB,
       changedTextAfter: valueB,
@@ -947,6 +972,7 @@ function createFieldDifference(
       isFieldDifference: true,
       fieldKey,
       fieldLabel,
+      ...matchMetadata,
       pageA: fieldA.pageNumber,
       textBefore: valueA,
       changedTextBefore: valueA,
@@ -962,6 +988,7 @@ function createFieldDifference(
     isFieldDifference: true,
     fieldKey,
     fieldLabel,
+    ...matchMetadata,
     pageA: fieldA.pageNumber,
     pageB: fieldB.pageNumber,
     textBefore: valueA,
@@ -984,17 +1011,49 @@ function compareStructuredFields(
   fieldsB: Map<string, ExtractedField>,
 ) {
   const fieldDifferences: Difference[] = [];
-  const fieldKeys = new Set([...fieldsA.keys(), ...fieldsB.keys()]);
+  const matches = matchSemanticFields([...fieldsA.values()], [...fieldsB.values()]);
+  const matchedKeysA = new Set(matches.map((match) => match.fieldA.key));
+  const matchedKeysB = new Set(matches.map((match) => match.fieldB.key));
 
-  fieldKeys.forEach((fieldKey) => {
-    const fieldA = fieldsA.get(fieldKey);
-    const fieldB = fieldsB.get(fieldKey);
+  matches.forEach((match) => {
+    const fieldA = fieldsA.get(match.fieldA.key);
+    const fieldB = fieldsB.get(match.fieldB.key);
 
     if (doFieldValuesMatch(fieldA, fieldB)) {
       return;
     }
 
-    fieldDifferences.push(createFieldDifference(fieldDifferences.length + 1, fieldKey, fieldA, fieldB));
+    fieldDifferences.push(
+      createFieldDifference(
+        fieldDifferences.length + 1,
+        match.canonicalKey,
+        fieldA,
+        fieldB,
+        match.canonicalLabel,
+        match.confidence,
+        match.confidenceLevel,
+      ),
+    );
+  });
+
+  fieldsA.forEach((fieldA, fieldKey) => {
+    if (matchedKeysA.has(fieldKey)) {
+      return;
+    }
+
+    fieldDifferences.push(
+      createFieldDifference(fieldDifferences.length + 1, fieldKey, fieldA, undefined),
+    );
+  });
+
+  fieldsB.forEach((fieldB, fieldKey) => {
+    if (matchedKeysB.has(fieldKey)) {
+      return;
+    }
+
+    fieldDifferences.push(
+      createFieldDifference(fieldDifferences.length + 1, fieldKey, undefined, fieldB),
+    );
   });
 
   return fieldDifferences;
