@@ -9,6 +9,7 @@ import type {
 import { classifyDifference } from './differenceClassifier';
 import { matchSemanticFields } from './fieldMatchingService';
 import type { FieldMatchConfidenceLevel } from './fieldMatchingService';
+import { parseFieldLabelAtStart } from './fieldLabelParser';
 
 type TextBlock = {
   pageNumber: number;
@@ -88,6 +89,7 @@ export const defaultComparisonSettings: ComparisonSettings = {
   importantFields: [
     { key: 'poNumber', label: 'PO Number', enabled: true, isCustom: false },
     { key: 'invoiceNumber', label: 'Invoice Number', enabled: true, isCustom: false },
+    { key: 'referenceNumber', label: 'Reference Number', enabled: true, isCustom: false },
     { key: 'date', label: 'Date', enabled: true, isCustom: false },
     { key: 'quantity', label: 'Quantity', enabled: true, isCustom: false },
     { key: 'amount', label: 'Amount', enabled: true, isCustom: false },
@@ -136,6 +138,22 @@ const FIELD_DEFINITIONS: FieldDefinition[] = [
     aliases: ['invoice', 'invoice no', 'invoice number', 'inv no', 'inv number'],
   },
   {
+    key: 'referenceNumber',
+    label: 'Reference Number',
+    labelPattern: String.raw`(?:Reference|Ref\.?)\s*(?:No\.?|Number|#|ID)?`,
+    valuePattern: String.raw`[A-Z0-9][A-Z0-9._/#-]*`,
+    aliases: [
+      'reference',
+      'reference no',
+      'reference number',
+      'reference #',
+      'reference id',
+      'ref',
+      'ref no',
+      'ref number',
+    ],
+  },
+  {
     key: 'date',
     label: 'Date',
     labelPattern: String.raw`Date`,
@@ -168,14 +186,23 @@ const FIELD_DEFINITIONS: FieldDefinition[] = [
     label: 'Item Code',
     labelPattern: String.raw`(?:Item\s*(?:Code|No\.?|Number)|SKU|Part\s*(?:Code|No\.?|Number))`,
     valuePattern: String.raw`[A-Z0-9][A-Z0-9._/-]*`,
-    aliases: ['item code', 'item no', 'item number', 'sku', 'part code', 'part no', 'part number'],
+    aliases: [
+      'item code',
+      'item no',
+      'item number',
+      'sku',
+      'part',
+      'part code',
+      'part no',
+      'part number',
+    ],
   },
   {
     key: 'customer',
     label: 'Customer',
     labelPattern: String.raw`(?:Customer|Bill\s*To|Buyer)`,
     valuePattern: String.raw`[A-Z0-9][A-Z0-9&.,'() /-]{1,80}`,
-    aliases: ['customer', 'customer name', 'bill to', 'buyer'],
+    aliases: ['customer', 'customer name', 'customer id', 'bill to', 'buyer'],
   },
   {
     key: 'supplier',
@@ -365,28 +392,25 @@ function getCanonicalFieldDefinition(label: string, fieldDefinitions: FieldDefin
 
 function getLabelAtStart(text: string, fieldDefinitions: FieldDefinition[]) {
   const normalizedText = normalizeDisplayText(text);
-  const matches = fieldDefinitions
-    .flatMap((fieldDefinition) =>
-      fieldDefinition.aliases.map((alias) => {
-        const pattern = new RegExp(
-          String.raw`^${escapeRegExp(alias).replace(/\s+/g, String.raw`\s+`)}(?:\s*[:#-]\s*|\s+|$)`,
-          'i',
-        );
-        const match = pattern.exec(normalizedText);
+  const match = parseFieldLabelAtStart(
+    normalizedText,
+    fieldDefinitions.flatMap((fieldDefinition) =>
+      fieldDefinition.aliases.map((alias) => ({
+        alias,
+        field: fieldDefinition,
+      })),
+    ),
+  );
 
-        return match === null
-          ? null
-          : {
-              fieldDefinition,
-              labelText: match[0].replace(/\s*[:#-]\s*$/, '').trim(),
-              valueText: normalizedText.slice(match[0].length).trim(),
-            };
-      }),
-    )
-    .filter((match): match is NonNullable<typeof match> => match !== null)
-    .sort((matchA, matchB) => matchB.labelText.length - matchA.labelText.length);
+  if (match === undefined) {
+    return undefined;
+  }
 
-  return matches[0];
+  return {
+    fieldDefinition: match.field,
+    labelText: match.labelText,
+    valueText: match.valueText,
+  };
 }
 
 function createVirtualLocation(
