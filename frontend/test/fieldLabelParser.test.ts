@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parseFieldLabelAtStart } from '../src/services/fieldLabelParser.ts';
+import {
+  detectTableHeaderColumns,
+  mapTableRowToColumns,
+} from '../src/services/structuredFieldParser.ts';
 
 const aliases = [
   'PO',
@@ -46,4 +50,72 @@ test('supports other common label suffixes', () => {
     assert.equal(result?.labelText, expectedLabel);
     assert.equal(result?.valueText, expectedValue);
   });
+});
+
+test('maps each table header only to its own value cell', () => {
+  const fields = mapTableRowToColumns(
+    [
+      { field: 'Quantity', x: 100 },
+      { field: 'Item Description', x: 300 },
+    ],
+    [
+      { text: '20', x: 85, width: 30 },
+      {
+        text: 'Navigating the Digital World training material',
+        x: 220,
+        width: 260,
+      },
+    ],
+  );
+
+  assert.deepEqual(
+    fields.map(({ field, value }) => ({ field, value })),
+    [
+      { field: 'Quantity', value: '20' },
+      {
+        field: 'Item Description',
+        value: 'Navigating the Digital World training material',
+      },
+    ],
+  );
+});
+
+test('detects split multi-token headers without mixing adjacent headers', () => {
+  const knownHeaders = new Map([
+    ['quantity', 'Quantity'],
+    ['item description', 'Item Description'],
+  ]);
+  const columns = detectTableHeaderColumns(
+    [
+      { text: 'Quantity', x: 70, width: 60 },
+      { text: 'Item', x: 220, width: 40 },
+      { text: 'Description', x: 265, width: 90 },
+    ],
+    (label) => knownHeaders.get(label.toLowerCase()),
+  );
+
+  assert.deepEqual(
+    columns.map((column) => column.field),
+    ['Quantity', 'Item Description'],
+  );
+});
+
+test('joins wrapped cells only within the same table column', () => {
+  const fields = mapTableRowToColumns(
+    [
+      { field: 'Quantity', x: 100 },
+      { field: 'Item Description', x: 300 },
+    ],
+    [
+      { text: '20', x: 85, width: 30 },
+      { text: 'Navigating the Digital', x: 220, width: 180 },
+      { text: 'World training material', x: 225, width: 170 },
+    ],
+  );
+
+  assert.equal(fields[0].value, '20');
+  assert.equal(
+    fields[1].value,
+    'Navigating the Digital World training material',
+  );
 });

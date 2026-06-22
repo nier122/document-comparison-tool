@@ -10,6 +10,10 @@ import { classifyDifference } from './differenceClassifier';
 import { matchSemanticFields } from './fieldMatchingService';
 import type { FieldMatchConfidenceLevel } from './fieldMatchingService';
 import { parseFieldLabelAtStart } from './fieldLabelParser';
+import {
+  detectTableHeaderColumns,
+  mapTableRowToColumns,
+} from './structuredFieldParser';
 
 type TextBlock = {
   pageNumber: number;
@@ -590,16 +594,18 @@ function getEmbeddedFieldCandidate(
   location: PdfTextLocation,
   pageNumber: number,
 ): FieldCandidate | null {
-  const pattern = getFieldPattern(fieldDefinition);
-  const match = pattern.exec(location.text);
+  const match = getLabelAtStart(location.text, [fieldDefinition]);
 
-  if (match === null) {
+  if (match === undefined || match.fieldDefinition.key !== fieldDefinition.key) {
     return null;
   }
 
-  const value = normalizeDisplayText(match[2] ?? '');
+  const value = normalizeDisplayText(match.valueText);
 
-  if (value.length === 0) {
+  if (
+    value.length === 0 ||
+    /^(?:no\.?|number|#|id)$/i.test(value)
+  ) {
     return null;
   }
 
@@ -609,7 +615,7 @@ function getEmbeddedFieldCandidate(
     aliases: fieldDefinition.aliases,
     value,
     pageNumber,
-    sourceText: match[0],
+    sourceText: location.text,
     locations: [location],
   };
 }
@@ -720,7 +726,10 @@ function getValueLocationsAfterLabel(
 function addFieldCandidate(candidates: FieldCandidate[], candidate: FieldCandidate) {
   const value = normalizeDisplayText(candidate.value);
 
-  if (value.length === 0) {
+  if (
+    value.length === 0 ||
+    /^(?:no\.?|number|#|id)$/i.test(value)
+  ) {
     return;
   }
 
@@ -742,13 +751,6 @@ function normalizeFieldValue(value: string) {
     .replace(/\s+/g, '')
     .replace(/[$\u20ac\u00a3,]/g, '')
     .trim();
-}
-
-function getFieldPattern(fieldDefinition: FieldDefinition) {
-  return new RegExp(
-    String.raw`(?:^|\b)(${fieldDefinition.labelPattern})\s*(?:[:|#-]|\s{2,}|\s)\s*(${fieldDefinition.valuePattern})`,
-    'gi',
-  );
 }
 
 function extractInlineFieldCandidates(
@@ -807,28 +809,18 @@ function extractInlineFieldCandidates(
 }
 
 function getHeaderColumns(headerLine: TextLine, fieldDefinitions: FieldDefinition[]) {
-  const columns: { fieldDefinition: FieldDefinition; x: number }[] = [];
   const cells = getLineCells(headerLine, fieldDefinitions);
 
-  cells.forEach((cell, cellIndex) => {
-    const adjacentLabelText = normalizeDisplayText(
-      [cell.text, cells[cellIndex + 1]?.text].filter(Boolean).join(' '),
-    );
-    const fieldDefinition =
-      getCanonicalFieldDefinition(adjacentLabelText, fieldDefinitions) ??
-      getCanonicalFieldDefinition(cell.text, fieldDefinitions);
-
-    if (fieldDefinition === undefined) {
-      return;
-    }
-
-    columns.push({
-      fieldDefinition,
-      x: cell.location.x + cell.location.width / 2,
-    });
-  });
-
-  return columns;
+  return detectTableHeaderColumns(
+    cells.map((cell) => ({
+      ...cell.location,
+      text: cell.text,
+    })),
+    (label) => getCanonicalFieldDefinition(label, fieldDefinitions),
+  ).map((column) => ({
+    fieldDefinition: column.field,
+    x: column.x,
+  }));
 }
 
 function isLikelyValueLocation(location: PdfTextLocation) {
@@ -849,34 +841,38 @@ function extractTableFieldCandidates(
       return;
     }
 
-    const valueLines = lines.slice(lineIndex + 1, lineIndex + 4).filter((valueLine) => valueLine.y < line.y);
+    const valueLines = lines
+      .slice(lineIndex + 1, lineIndex + 4)
+      .filter((valueLine) => valueLine.y < line.y);
 
     valueLines.forEach((valueLine) => {
+      if (getHeaderColumns(valueLine, fieldDefinitions).length >= 2) {
+        return;
+      }
+
       const valueCells = getLineCells(valueLine, fieldDefinitions);
+      const valueLocations = valueCells
+        .map((cell) => cell.location)
+        .filter(isLikelyValueLocation);
 
-      valueCells.map((cell) => cell.location).filter(isLikelyValueLocation).forEach((location) => {
-        const locationCenterX = location.x + location.width / 2;
-        const nearestColumn = columns.reduce((nearest, column) => {
-          const nearestDistance = Math.abs(nearest.x - locationCenterX);
-          const columnDistance = Math.abs(column.x - locationCenterX);
+      const fieldValues = mapTableRowToColumns(
+        columns.map((column) => ({
+          field: column.fieldDefinition,
+          x: column.x,
+        })),
+        valueLocations,
+      );
 
-          return columnDistance < nearestDistance ? column : nearest;
-        }, columns[0]);
-
-        if (Math.abs(nearestColumn.x - locationCenterX) > page.pageWidth * 0.18) {
-          return;
-        }
-
-        const value = getCellValueForField(nearestColumn.fieldDefinition, location.text);
+      fieldValues.forEach(({ field, value, cells: columnLocations }) => {
 
         addFieldCandidate(candidates, {
-          key: nearestColumn.fieldDefinition.key,
-          label: nearestColumn.fieldDefinition.label,
-          aliases: nearestColumn.fieldDefinition.aliases,
+          key: field.key,
+          label: field.label,
+          aliases: field.aliases,
           value,
           pageNumber: page.pageNumber,
           sourceText: value,
-          locations: [location],
+          locations: columnLocations,
         });
       });
     });
@@ -926,8 +922,13 @@ function extractStructuredFields(
 
   pages.forEach((page) => {
     const lines = groupLocationsIntoLines(page);
+    const tableHeaderLines = new Set(
+      lines.filter((line) => getHeaderColumns(line, fieldDefinitions).length >= 2),
+    );
     const candidates = [
-      ...lines.flatMap((line) => extractInlineFieldCandidates(page, line, fieldDefinitions)),
+      ...lines
+        .filter((line) => !tableHeaderLines.has(line))
+        .flatMap((line) => extractInlineFieldCandidates(page, line, fieldDefinitions)),
       ...extractTableFieldCandidates(page, lines, fieldDefinitions),
     ];
 
