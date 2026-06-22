@@ -8,6 +8,10 @@ import {
   parseStructuredFieldText,
 } from '../src/services/structuredFieldParser.ts';
 import { isFieldLabelSuffix } from '../src/services/fieldLabelParser.ts';
+import {
+  cleanFieldValue,
+  isRealFieldValue,
+} from '../src/services/fieldValueCleanup.ts';
 
 const aliases = [
   'PO',
@@ -71,6 +75,50 @@ test('structured PO parser returns only the real value for every supported form'
     assert.equal(parsed?.field, 'PO Number');
     assert.equal(parsed?.valueText, '22884996');
     assert.notEqual(parsed?.valueText, 'No.');
+  });
+});
+
+test('cleans standalone field marker values using the next real value', () => {
+  const examples = [
+    ['No.', ['22884996'], '22884996'],
+    ['No', ['INV-001'], 'INV-001'],
+    ['ID', ['C001'], 'C001'],
+    ['Ref.', ['RFQ-55'], 'RFQ-55'],
+    ['Code', ['ABC-123'], 'ABC-123'],
+  ] as const;
+
+  examples.forEach(([rawValue, nearbyValues, expectedValue]) => {
+    const result = cleanFieldValue(rawValue, [...nearbyValues]);
+
+    assert.equal(result.rawValue, rawValue);
+    assert.equal(result.cleanedValue, expectedValue);
+    assert.equal(result.changed, true);
+  });
+});
+
+test('does not remove marker words inside meaningful sentences', () => {
+  assert.equal(isRealFieldValue('No changes are required'), true);
+  assert.deepEqual(cleanFieldValue('No changes are required', ['22884996']), {
+    rawValue: 'No changes are required',
+    cleanedValue: 'No changes are required',
+    changed: false,
+  });
+});
+
+test('cleanup proves required structured field values', () => {
+  const cases = [
+    ['No.', ['22884996'], 'PO Number', '22884996'],
+    ['No.', ['INV-001'], 'Invoice Number', 'INV-001'],
+    ['ID', ['C001'], 'Customer ID', 'C001'],
+  ] as const;
+
+  cases.forEach(([rawValue, nearbyValues, field, expectedValue]) => {
+    const cleaned = cleanFieldValue(rawValue, [...nearbyValues]);
+
+    assert.equal(
+      `${field} = ${cleaned.cleanedValue}`,
+      `${field} = ${expectedValue}`,
+    );
   });
 });
 

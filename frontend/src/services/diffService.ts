@@ -19,6 +19,7 @@ import {
   mapTableRowToColumns,
   parseStructuredFieldText,
 } from './structuredFieldParser';
+import { cleanFieldValue } from './fieldValueCleanup';
 
 type TextBlock = {
   pageNumber: number;
@@ -759,10 +760,7 @@ function getValueLocationsAfterLabel(
 function addFieldCandidate(candidates: FieldCandidate[], candidate: FieldCandidate) {
   const value = normalizeDisplayText(candidate.value);
 
-  if (
-    value.length === 0 ||
-    isFieldLabelSuffix(value)
-  ) {
+  if (value.length === 0) {
     return;
   }
 
@@ -854,6 +852,69 @@ function getHeaderColumns(headerLine: TextLine, fieldDefinitions: FieldDefinitio
     fieldDefinition: column.field,
     x: column.x,
   }));
+}
+
+function cleanExtractedFieldCandidates(
+  candidates: FieldCandidate[],
+  lines: TextLine[],
+) {
+  return candidates.flatMap((candidate) => {
+    const candidateLocation = candidate.locations[0];
+    const matchingLine =
+      candidateLocation === undefined
+        ? undefined
+        : lines.find(
+            (line) =>
+              line.pageNumber === candidateLocation.pageNumber &&
+              Math.abs(line.y - candidateLocation.y) <=
+                Math.max(3, candidateLocation.height * 0.4),
+          );
+    const candidateRight = Math.max(
+      ...candidate.locations.map(
+        (location) => location.x + location.width,
+      ),
+      Number.NEGATIVE_INFINITY,
+    );
+    const sourceTextValues = normalizeDisplayText(candidate.sourceText)
+      .split(/\s+/)
+      .filter(Boolean);
+    const nearbyValues = [
+      ...sourceTextValues,
+      matchingLine?.locations
+        .filter((location) => location.x + location.width / 2 > candidateRight)
+        .sort((locationA, locationB) => locationA.x - locationB.x)
+        .map((location) => location.text) ?? [],
+    ].flat();
+    const cleanup = cleanFieldValue(candidate.value, nearbyValues);
+
+    if (cleanup.changed) {
+      console.debug(
+        `[structured-field-parser] raw value: "${cleanup.rawValue}" -> cleaned value: "${cleanup.cleanedValue}"`,
+      );
+    }
+
+    if (cleanup.cleanedValue === undefined) {
+      return [];
+    }
+
+    const recoveredLocation = matchingLine?.locations.find(
+      (location) =>
+        normalizeDisplayText(location.text) === cleanup.cleanedValue,
+    );
+
+    return [{
+      ...candidate,
+      value: cleanup.cleanedValue,
+      sourceText:
+        cleanup.changed && recoveredLocation !== undefined
+          ? `${candidate.sourceText} ${recoveredLocation.text}`
+          : candidate.sourceText,
+      locations:
+        cleanup.changed && recoveredLocation !== undefined
+          ? [recoveredLocation]
+          : candidate.locations,
+    }];
+  });
 }
 
 function isLikelyValueLocation(location: PdfTextLocation) {
@@ -965,7 +1026,9 @@ function extractStructuredFields(
       ...extractTableFieldCandidates(page, lines, fieldDefinitions),
     ];
 
-    candidates.forEach((candidate) => mergeFieldCandidate(fieldsByKey, candidate));
+    cleanExtractedFieldCandidates(candidates, lines).forEach((candidate) =>
+      mergeFieldCandidate(fieldsByKey, candidate),
+    );
   });
 
   return fieldsByKey;
