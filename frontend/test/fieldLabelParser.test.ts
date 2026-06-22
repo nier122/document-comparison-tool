@@ -10,6 +10,7 @@ import {
 import { isFieldLabelSuffix } from '../src/services/fieldLabelParser.ts';
 import {
   cleanFieldValue,
+  cleanFieldValuesForDifference,
   isRealFieldValue,
 } from '../src/services/fieldValueCleanup.ts';
 
@@ -120,6 +121,37 @@ test('cleanup proves required structured field values', () => {
       `${field} = ${expectedValue}`,
     );
   });
+});
+
+test('final safety filter recovers invalid values before field differences', () => {
+  const result = cleanFieldValuesForDifference(
+    ['No.'],
+    ['PO No. 22884996'],
+  );
+
+  assert.deepEqual(result.values, ['22884996']);
+  assert.deepEqual(result.removedValues, ['No.']);
+  assert.equal(result.valid, true);
+});
+
+test('final safety filter discards marker-only fields without recovery', () => {
+  const invalidMarkers = ['No.', 'No', 'Number', '#', 'ID', 'Ref', 'Ref.', 'Code'];
+
+  invalidMarkers.forEach((marker) => {
+    const result = cleanFieldValuesForDifference([marker], [marker]);
+
+    assert.deepEqual(result.values, []);
+    assert.equal(result.valid, false);
+  });
+});
+
+test('final safety filter never emits Before No. against a real value', () => {
+  const before = cleanFieldValuesForDifference(['No.'], ['PO No.']);
+  const after = cleanFieldValuesForDifference(['22884996'], ['22884996']);
+
+  assert.equal(before.valid, false);
+  assert.equal(after.valid, true);
+  assert.notEqual(before.values[0], 'No.');
 });
 
 test('supports other common label suffixes', () => {

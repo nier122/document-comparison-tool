@@ -6,6 +6,13 @@ export type FieldValueCleanupResult = {
   changed: boolean;
 };
 
+export type FieldValuesSafetyResult = {
+  values: string[];
+  removedValues: string[];
+  recoveredValues: string[];
+  valid: boolean;
+};
+
 function normalizeValue(text: string) {
   return text.normalize('NFKC').replace(/\s+/g, ' ').trim();
 }
@@ -52,5 +59,45 @@ export function cleanFieldValue(
     rawValue,
     cleanedValue,
     changed: cleanedValue !== undefined && cleanedValue !== normalizedRawValue,
+  };
+}
+
+export function cleanFieldValuesForDifference(
+  values: string[],
+  nearbyTexts: string[],
+): FieldValuesSafetyResult {
+  const normalizedValues = values.map(normalizeValue).filter(Boolean);
+  const validValues = normalizedValues.filter(
+    (value) => !isFieldLabelSuffix(value),
+  );
+  const removedValues = normalizedValues.filter(isFieldLabelSuffix);
+  const contextCandidates = nearbyTexts.flatMap((text) => {
+    const normalizedText = normalizeValue(text);
+    const tokens = normalizedText
+      .split(/\s*\|\s*|\s+/)
+      .filter(Boolean);
+    const shouldIncludeWholeText =
+      tokens.length > 2 || !tokens.some(isFieldLabelSuffix);
+
+    return [
+      ...tokens,
+      ...(shouldIncludeWholeText ? [normalizedText] : []),
+    ];
+  });
+  const recoveredValues = removedValues.flatMap((removedValue) => {
+    const recovery = cleanFieldValue(removedValue, [
+      ...validValues,
+      ...contextCandidates,
+    ]);
+
+    return recovery.cleanedValue === undefined ? [] : [recovery.cleanedValue];
+  });
+  const cleanedValues = [...new Set([...validValues, ...recoveredValues])];
+
+  return {
+    values: cleanedValues,
+    removedValues,
+    recoveredValues,
+    valid: cleanedValues.length > 0,
   };
 }

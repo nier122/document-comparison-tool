@@ -19,7 +19,10 @@ import {
   mapTableRowToColumns,
   parseStructuredFieldText,
 } from './structuredFieldParser';
-import { cleanFieldValue } from './fieldValueCleanup';
+import {
+  cleanFieldValue,
+  cleanFieldValuesForDifference,
+} from './fieldValueCleanup';
 
 type TextBlock = {
   pageNumber: number;
@@ -1038,6 +1041,39 @@ function getFieldDisplayValue(field: ExtractedField | undefined) {
   return field?.values.join(' | ');
 }
 
+function cleanFieldForDifference(
+  field: ExtractedField | undefined,
+): ExtractedField | undefined {
+  if (field === undefined) {
+    return undefined;
+  }
+
+  const cleanup = cleanFieldValuesForDifference(field.values, [
+    field.sourceText,
+    ...field.locations.map((location) => location.text),
+  ]);
+
+  if (cleanup.removedValues.length > 0) {
+    console.debug(
+      `[field-difference-safety] ${field.label}: removed invalid value(s) ` +
+        `${cleanup.removedValues.map((value) => `"${value}"`).join(', ')}` +
+        (cleanup.recoveredValues.length > 0
+          ? `; recovered ${cleanup.recoveredValues.map((value) => `"${value}"`).join(', ')}`
+          : '; no replacement found'),
+    );
+  }
+
+  if (!cleanup.valid) {
+    return undefined;
+  }
+
+  return {
+    ...field,
+    values: cleanup.values,
+    normalizedValues: cleanup.values.map(normalizeFieldValue),
+  };
+}
+
 function doFieldValuesMatch(fieldA: ExtractedField | undefined, fieldB: ExtractedField | undefined) {
   if (fieldA === undefined || fieldB === undefined) {
     return fieldA === fieldB;
@@ -1137,8 +1173,20 @@ function compareStructuredFields(
   const matchedKeysB = new Set(matches.map((match) => match.fieldB.key));
 
   matches.forEach((match) => {
-    const fieldA = fieldsA.get(match.fieldA.key);
-    const fieldB = fieldsB.get(match.fieldB.key);
+    const rawFieldA = fieldsA.get(match.fieldA.key);
+    const rawFieldB = fieldsB.get(match.fieldB.key);
+    const fieldA = cleanFieldForDifference(rawFieldA);
+    const fieldB = cleanFieldForDifference(rawFieldB);
+
+    if (
+      (rawFieldA !== undefined && fieldA === undefined) ||
+      (rawFieldB !== undefined && fieldB === undefined)
+    ) {
+      console.debug(
+        `[field-difference-safety] discarded ${match.canonicalLabel} difference because one side contained only invalid prefix values`,
+      );
+      return;
+    }
 
     if (doFieldValuesMatch(fieldA, fieldB)) {
       return;
@@ -1162,9 +1210,18 @@ function compareStructuredFields(
       return;
     }
 
-    fieldDifferences.push(
-      createFieldDifference(fieldDifferences.length + 1, fieldKey, fieldA, undefined),
-    );
+    const cleanedFieldA = cleanFieldForDifference(fieldA);
+
+    if (cleanedFieldA !== undefined) {
+      fieldDifferences.push(
+        createFieldDifference(
+          fieldDifferences.length + 1,
+          fieldKey,
+          cleanedFieldA,
+          undefined,
+        ),
+      );
+    }
   });
 
   fieldsB.forEach((fieldB, fieldKey) => {
@@ -1172,9 +1229,18 @@ function compareStructuredFields(
       return;
     }
 
-    fieldDifferences.push(
-      createFieldDifference(fieldDifferences.length + 1, fieldKey, undefined, fieldB),
-    );
+    const cleanedFieldB = cleanFieldForDifference(fieldB);
+
+    if (cleanedFieldB !== undefined) {
+      fieldDifferences.push(
+        createFieldDifference(
+          fieldDifferences.length + 1,
+          fieldKey,
+          undefined,
+          cleanedFieldB,
+        ),
+      );
+    }
   });
 
   return fieldDifferences;
