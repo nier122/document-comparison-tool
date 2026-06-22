@@ -18,6 +18,7 @@ import {
   findFirstRealFieldValue,
   mapTableRowToColumns,
   parseStructuredFieldText,
+  selectFieldValueFromText,
 } from './structuredFieldParser';
 import {
   cleanFieldValue,
@@ -577,10 +578,6 @@ function doesValueMatchField(fieldDefinition: FieldDefinition, value: string) {
   return new RegExp(`^${fieldDefinition.valuePattern}$`, 'i').test(normalizeDisplayText(value));
 }
 
-function getFieldValuePattern(fieldDefinition: FieldDefinition) {
-  return new RegExp(fieldDefinition.valuePattern, 'i');
-}
-
 function isMultiWordField(fieldDefinition: FieldDefinition) {
   return (
     fieldDefinition.key === 'customer' ||
@@ -672,13 +669,26 @@ function getCellValueForField(fieldDefinition: FieldDefinition, text: string) {
     return embeddedCandidate?.value ?? explicitFragment;
   }
 
-  const matchingFragment = fragments.find((fragment) => doesValueMatchField(fieldDefinition, fragment));
+  const matchingFragment = fragments.find(
+    (fragment) =>
+      !isFieldLabelSuffix(fragment) &&
+      doesValueMatchField(fieldDefinition, fragment),
+  );
 
   if (matchingFragment !== undefined) {
     return matchingFragment;
   }
 
-  const matchingValue = getFieldValuePattern(fieldDefinition).exec(fragments[0])?.[0];
+  const matchingValue = selectFieldValueFromText(
+    fragments[0],
+    (candidate) => doesValueMatchField(fieldDefinition, candidate),
+  );
+
+  if (matchingValue === undefined && isFieldLabelSuffix(fragments[0])) {
+    console.debug(
+      `[structured-field-parser] getCellValueForField rejected marker-only value "${fragments[0]}" for ${fieldDefinition.label}`,
+    );
+  }
 
   return normalizeDisplayText(matchingValue ?? fragments[0]);
 }
@@ -1028,11 +1038,30 @@ function extractStructuredFields(
         .flatMap((line) => extractInlineFieldCandidates(page, line, fieldDefinitions)),
       ...extractTableFieldCandidates(page, lines, fieldDefinitions),
     ];
+    console.debug('[structured-field-trace] 2. parsed fields', {
+      pageNumber: page.pageNumber,
+      candidates: candidates.map((candidate) => ({
+        field: candidate.label,
+        value: candidate.value,
+        sourceText: candidate.sourceText,
+      })),
+    });
 
     cleanExtractedFieldCandidates(candidates, lines).forEach((candidate) =>
       mergeFieldCandidate(fieldsByKey, candidate),
     );
   });
+
+  console.debug(
+    '[structured-field-trace] 3. normalized fields',
+    [...fieldsByKey.values()].map((field) => ({
+      key: field.key,
+      label: field.label,
+      values: field.values,
+      normalizedValues: field.normalizedValues,
+      sourceText: field.sourceText,
+    })),
+  );
 
   return fieldsByKey;
 }
@@ -1169,6 +1198,17 @@ function compareStructuredFields(
 ) {
   const fieldDifferences: Difference[] = [];
   const matches = matchSemanticFields([...fieldsA.values()], [...fieldsB.values()]);
+  console.debug(
+    '[structured-field-trace] 4. matched field pairs',
+    matches.map((match) => ({
+      fieldA: match.fieldA.label,
+      valuesA: match.fieldA.values,
+      fieldB: match.fieldB.label,
+      valuesB: match.fieldB.values,
+      canonicalField: match.canonicalLabel,
+      confidence: match.confidence,
+    })),
+  );
   const matchedKeysA = new Set(matches.map((match) => match.fieldA.key));
   const matchedKeysB = new Set(matches.map((match) => match.fieldB.key));
 
@@ -1751,6 +1791,18 @@ export function generateComparisonResult(
   pdfBPages: ExtractedPdfPage[],
   settings: ComparisonSettings = defaultComparisonSettings,
 ): ComparisonResult {
+  console.debug('[structured-field-trace] 1. extracted raw text', {
+    pdfA: pdfAPages.map((page) => ({
+      pageNumber: page.pageNumber,
+      text: page.text,
+      locations: page.locations.map((location) => location.text),
+    })),
+    pdfB: pdfBPages.map((page) => ({
+      pageNumber: page.pageNumber,
+      text: page.text,
+      locations: page.locations.map((location) => location.text),
+    })),
+  });
   const pageHeights = new Map(
     [...pdfAPages, ...pdfBPages].map((page) => [page.pageNumber, page.pageHeight] as const),
   );
@@ -1785,7 +1837,26 @@ export function generateComparisonResult(
 
   pushMeaningfulChanges(differences, deletedBlocks, addedBlocks);
 
-  return applyComparisonSettings(differences, settings, pageHeights);
+  const result = applyComparisonSettings(differences, settings, pageHeights);
+
+  console.debug('[structured-field-trace] 5. final differences sent to UI', {
+    differences: result.differences.map((difference) => ({
+      id: difference.id,
+      field: difference.fieldLabel,
+      before: difference.textBefore,
+      after: difference.textAfter,
+      isFieldDifference: difference.isFieldDifference,
+    })),
+    ignoredDifferences: result.ignoredDifferences.map((difference) => ({
+      id: difference.id,
+      field: difference.fieldLabel,
+      before: difference.textBefore,
+      after: difference.textAfter,
+      reason: difference.ignoredReason,
+    })),
+  });
+
+  return result;
 }
 
 export function generateDifferences(

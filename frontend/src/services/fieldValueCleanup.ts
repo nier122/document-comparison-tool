@@ -101,3 +101,22 @@ export function cleanFieldValuesForDifference(
     valid: cleanedValues.length > 0,
   };
 }
+
+export function isInvalidDisplayedFieldValue(value: string | undefined) {
+  return value !== undefined && isFieldLabelSuffix(value);
+}
+
+export function shouldDisplayFieldDifference(difference: {
+  isFieldDifference?: boolean;
+  textBefore?: string;
+  textAfter?: string;
+}) {
+  if (!difference.isFieldDifference) {
+    return true;
+  }
+
+  return (
+    !isInvalidDisplayedFieldValue(difference.textBefore) &&
+    !isInvalidDisplayedFieldValue(difference.textAfter)
+  );
+}

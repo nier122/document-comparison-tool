@@ -45,6 +45,24 @@ export function findFirstRealFieldValue<T>(
   });
 }
 
+export function selectFieldValueFromText(
+  text: string,
+  isValidValue: (value: string) => boolean,
+) {
+  const normalizedText = normalizeCellText(text);
+  const candidates = [
+    ...normalizedText.split(/\s*\|\s*/),
+    ...normalizedText.split(/\s+/),
+  ]
+    .map(normalizeCellText)
+    .filter(Boolean);
+
+  return candidates.find(
+    (candidate) =>
+      !isFieldLabelSuffix(candidate) && isValidValue(candidate),
+  );
+}
+
 export function detectTableHeaderColumns<T, TCell extends PositionedCell>(
   cells: TCell[],
   resolveField: (label: string) => T | undefined,

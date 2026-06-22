@@ -6,12 +6,14 @@ import {
   findFirstRealFieldValue,
   mapTableRowToColumns,
   parseStructuredFieldText,
+  selectFieldValueFromText,
 } from '../src/services/structuredFieldParser.ts';
 import { isFieldLabelSuffix } from '../src/services/fieldLabelParser.ts';
 import {
   cleanFieldValue,
   cleanFieldValuesForDifference,
   isRealFieldValue,
+  shouldDisplayFieldDifference,
 } from '../src/services/fieldValueCleanup.ts';
 
 const aliases = [
@@ -152,6 +154,38 @@ test('final safety filter never emits Before No. against a real value', () => {
   assert.equal(before.valid, false);
   assert.equal(after.valid, true);
   assert.notEqual(before.values[0], 'No.');
+});
+
+test('render safety guard rejects every forbidden standalone field value', () => {
+  ['No.', 'No', 'Number', '#', 'ID'].forEach((invalidValue) => {
+    assert.equal(
+      shouldDisplayFieldDifference({
+        isFieldDifference: true,
+        textBefore: invalidValue,
+        textAfter: '22884996',
+      }),
+      false,
+    );
+  });
+
+  assert.equal(
+    shouldDisplayFieldDifference({
+      isFieldDifference: true,
+      textBefore: 'No changes required',
+      textAfter: 'Changes required',
+    }),
+    true,
+  );
+});
+
+test('cell value selection skips No. and returns the later PO number', () => {
+  assert.equal(
+    selectFieldValueFromText(
+      'No. 22884996',
+      (candidate) => /^[A-Z0-9][A-Z0-9./-]*$/i.test(candidate),
+    ),
+    '22884996',
+  );
 });
 
 test('supports other common label suffixes', () => {

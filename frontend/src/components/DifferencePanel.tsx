@@ -6,6 +6,7 @@ import type {
   DifferenceTextPart,
   LinkedSelectionState,
 } from '../types/comparison';
+import { shouldDisplayFieldDifference } from '../services/fieldValueCleanup';
 
 type DifferencePanelProps = {
   currentDifferenceIndex?: number;
@@ -205,6 +206,17 @@ function renderLegend() {
 }
 
 function renderFieldDifference(difference: Difference) {
+  if (!shouldDisplayFieldDifference(difference)) {
+    console.debug(
+      `[field-render-safety] suppressed invalid field difference ${difference.fieldLabel ?? difference.id}`,
+      {
+        before: difference.textBefore,
+        after: difference.textAfter,
+      },
+    );
+    return null;
+  }
+
   const confidenceLevel = difference.fieldMatchConfidenceLevel;
   const confidenceColor =
     confidenceLevel === 'high'
@@ -283,13 +295,17 @@ function renderFieldDifference(difference: Difference) {
 
 function renderLinkedSelection(linkedSelection: LinkedSelectionState) {
   const difference = linkedSelection.difference;
+  const safeDifference =
+    difference !== undefined && shouldDisplayFieldDifference(difference)
+      ? difference
+      : undefined;
 
   return (
     <div
       aria-live="polite"
       style={{
-        background: difference === undefined ? '#f9fafb' : '#eff6ff',
-        border: `1px solid ${difference === undefined ? '#9ca3af' : '#3b82f6'}`,
+        background: safeDifference === undefined ? '#f9fafb' : '#eff6ff',
+        border: `1px solid ${safeDifference === undefined ? '#9ca3af' : '#3b82f6'}`,
         marginBottom: '12px',
         padding: '10px',
       }}
@@ -298,25 +314,25 @@ function renderLinkedSelection(linkedSelection: LinkedSelectionState) {
       <p style={{ color: '#4b5563', margin: '6px 0 0' }}>
         Selected: {linkedSelection.text}
       </p>
-      {difference === undefined ? null : (
+      {safeDifference === undefined ? null : (
         <div style={{ display: 'grid', gap: '6px', marginTop: '10px' }}>
           <div>
             <span style={{ color: '#4b5563' }}>Before: </span>
-            {difference.textBefore === undefined ? (
+            {safeDifference.textBefore === undefined ? (
               <span>Not present in PDF A</span>
             ) : (
               <mark style={{ background: '#fecaca', color: '#7f1d1d', padding: '0 4px' }}>
-                {difference.changedTextBefore ?? difference.textBefore}
+                {safeDifference.changedTextBefore ?? safeDifference.textBefore}
               </mark>
             )}
           </div>
           <div>
             <span style={{ color: '#4b5563' }}>After: </span>
-            {difference.textAfter === undefined ? (
+            {safeDifference.textAfter === undefined ? (
               <span>Not present in PDF B</span>
             ) : (
               <mark style={{ background: '#bbf7d0', color: '#14532d', padding: '0 4px' }}>
-                {difference.changedTextAfter ?? difference.textAfter}
+                {safeDifference.changedTextAfter ?? safeDifference.textAfter}
               </mark>
             )}
           </div>
@@ -340,10 +356,25 @@ function DifferencePanel({
   const [categoryFilter, setCategoryFilter] = useState<DifferenceCategory | 'All'>('All');
   const [severitySort, setSeveritySort] = useState<SeveritySort>('document');
   const displayedDifferences = useMemo(() => {
+    const safeDifferences = differences.filter((difference) => {
+      const shouldDisplay = shouldDisplayFieldDifference(difference);
+
+      if (!shouldDisplay) {
+        console.debug(
+          `[field-render-safety] removed invalid field difference ${difference.fieldLabel ?? difference.id}`,
+          {
+            before: difference.textBefore,
+            after: difference.textAfter,
+          },
+        );
+      }
+
+      return shouldDisplay;
+    });
     const filteredDifferences =
       categoryFilter === 'All'
-        ? differences
-        : differences.filter(
+        ? safeDifferences
+        : safeDifferences.filter(
             (difference) => (difference.category ?? 'Unknown') === categoryFilter,
           );
 
