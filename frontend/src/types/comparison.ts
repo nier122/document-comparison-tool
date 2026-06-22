@@ -62,6 +62,20 @@ export type LinkedSelectionState = {
   message: string;
 };
 
+export type ParserDebugSide = {
+  rawExtractedText: string;
+  parsedLabel: string;
+  parsedValue: string;
+  normalizedLabel: string;
+  normalizedValue: string;
+};
+
+export type ParserDebugTrace = {
+  before?: ParserDebugSide;
+  after?: ParserDebugSide;
+  finalDifference: string;
+};
+
 export type Difference = {
   id: string;
   type: DifferenceType;
@@ -72,6 +86,7 @@ export type Difference = {
   fieldLabel?: string;
   fieldMatchConfidence?: number;
   fieldMatchConfidenceLevel?: 'high' | 'medium' | 'low';
+  parserDebug?: ParserDebugTrace;
   pageA?: number;
   pageB?: number;
   textBefore?: string;

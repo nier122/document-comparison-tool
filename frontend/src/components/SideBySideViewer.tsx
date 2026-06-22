@@ -6,6 +6,7 @@ import DifferencePanel from './DifferencePanel';
 import PanelResizeHandle from './PanelResizeHandle';
 import PDFExtractionDebugView from './PDFExtractionDebugView';
 import PDFViewer from './PDFViewer';
+import ParserDebugPanel from './ParserDebugPanel';
 import { defaultComparisonSettings, generateComparisonResult } from '../services/diffService';
 import { findLinkedDifference } from '../services/linkedSelectionService';
 import type {
@@ -435,6 +436,7 @@ function SideBySideViewer() {
   const [linkedSelection, setLinkedSelection] = useState<LinkedSelectionState | null>(null);
   const [navigationRequest, setNavigationRequest] = useState(0);
   const [showDebugView, setShowDebugView] = useState(false);
+  const [showParserDebug, setShowParserDebug] = useState(false);
   const [isDifferencePanelCollapsed, setIsDifferencePanelCollapsed] = useState(false);
   const [panelLayout, setPanelLayout] = useState<PanelLayout>(getInitialPanelLayout);
   const [workspaceWidth, setWorkspaceWidth] = useState(0);
@@ -814,12 +816,25 @@ function SideBySideViewer() {
               />{' '}
               Show Extraction Debug View
             </label>
+            <label>
+              <input
+                checked={showParserDebug}
+                onChange={(event) => setShowParserDebug(event.target.checked)}
+                type="checkbox"
+              />{' '}
+              Show Parser Debug
+            </label>
           </div>
         )}
         {!panelLayout.settingsCollapsed && showDebugView ? (
           <PDFExtractionDebugView
             pdfAExtraction={pdfAExtraction}
             pdfBExtraction={pdfBExtraction}
+          />
+        ) : null}
+        {!panelLayout.settingsCollapsed && showParserDebug ? (
+          <ParserDebugPanel
+            differences={[...differences, ...ignoredDifferences]}
           />
         ) : null}
         {!panelLayout.settingsCollapsed &&

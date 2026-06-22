@@ -50,6 +50,9 @@ type ExtractedField = {
   pageNumber: number;
   sourceText: string;
   locations: PdfTextLocation[];
+  debugRawTexts: string[];
+  debugParsedLabels: string[];
+  debugParsedValues: string[];
 };
 
 type FieldCandidate = {
@@ -60,6 +63,8 @@ type FieldCandidate = {
   pageNumber: number;
   sourceText: string;
   locations: PdfTextLocation[];
+  debugRawText?: string;
+  debugParsedLabel?: string;
 };
 
 type TextLine = {
@@ -629,6 +634,8 @@ function getEmbeddedFieldCandidate(
     pageNumber,
     sourceText: location.text,
     locations: [location],
+    debugRawText: location.text,
+    debugParsedLabel: match.labelText,
   };
 }
 
@@ -846,6 +853,9 @@ function extractInlineFieldCandidates(
       pageNumber: page.pageNumber,
       sourceText: value,
       locations: valueLocations,
+      debugRawText: line.text,
+      debugParsedLabel:
+        adjacentFieldDefinition === undefined ? cell.text : adjacentLabelText,
     });
   });
 
@@ -980,6 +990,8 @@ function extractTableFieldCandidates(
           pageNumber: page.pageNumber,
           sourceText: value,
           locations: columnLocations,
+          debugRawText: `${line.text}\n${valueLine.text}`,
+          debugParsedLabel: field.label,
         });
       });
     });
@@ -1007,6 +1019,9 @@ function mergeFieldCandidate(fieldsByKey: Map<string, ExtractedField>, candidate
       pageNumber: candidate.pageNumber,
       sourceText: candidate.sourceText,
       locations: candidate.locations,
+      debugRawTexts: [candidate.debugRawText ?? candidate.sourceText],
+      debugParsedLabels: [candidate.debugParsedLabel ?? candidate.label],
+      debugParsedValues: [candidate.value],
     });
     return;
   }
@@ -1019,6 +1034,9 @@ function mergeFieldCandidate(fieldsByKey: Map<string, ExtractedField>, candidate
   existingField.normalizedValues.push(normalizedValue);
   existingField.sourceText = `${existingField.sourceText} ${candidate.sourceText}`;
   existingField.locations = dedupeLocations([...existingField.locations, ...candidate.locations]);
+  existingField.debugRawTexts.push(candidate.debugRawText ?? candidate.sourceText);
+  existingField.debugParsedLabels.push(candidate.debugParsedLabel ?? candidate.label);
+  existingField.debugParsedValues.push(candidate.value);
 }
 
 function extractStructuredFields(
@@ -1068,6 +1086,20 @@ function extractStructuredFields(
 
 function getFieldDisplayValue(field: ExtractedField | undefined) {
   return field?.values.join(' | ');
+}
+
+function getParserDebugSide(field: ExtractedField | undefined) {
+  if (field === undefined) {
+    return undefined;
+  }
+
+  return {
+    rawExtractedText: [...new Set(field.debugRawTexts)].join('\n'),
+    parsedLabel: [...new Set(field.debugParsedLabels)].join(' | '),
+    parsedValue: [...new Set(field.debugParsedValues)].join(' | '),
+    normalizedLabel: field.label,
+    normalizedValue: field.normalizedValues.join(' | '),
+  };
 }
 
 function cleanFieldForDifference(
@@ -1129,6 +1161,15 @@ function createFieldDifference(
   const fieldLabel = fieldLabelOverride ?? fieldA?.label ?? fieldB?.label ?? fieldKey;
   const valueA = getFieldDisplayValue(fieldA);
   const valueB = getFieldDisplayValue(fieldB);
+  const parserDebug = {
+    before: getParserDebugSide(fieldA),
+    after: getParserDebugSide(fieldB),
+    finalDifference: [
+      fieldLabel,
+      `Before: ${valueA ?? 'Not present in PDF A'}`,
+      `After: ${valueB ?? 'Not present in PDF B'}`,
+    ].join('\n'),
+  };
   const matchMetadata = {
     fieldMatchConfidence,
     fieldMatchConfidenceLevel,
@@ -1141,6 +1182,7 @@ function createFieldDifference(
       isFieldDifference: true,
       fieldKey,
       fieldLabel,
+      parserDebug,
       ...matchMetadata,
       pageB: fieldB?.pageNumber,
       textAfter: valueB,
@@ -1158,6 +1200,7 @@ function createFieldDifference(
       isFieldDifference: true,
       fieldKey,
       fieldLabel,
+      parserDebug,
       ...matchMetadata,
       pageA: fieldA.pageNumber,
       textBefore: valueA,
@@ -1174,6 +1217,7 @@ function createFieldDifference(
     isFieldDifference: true,
     fieldKey,
     fieldLabel,
+    parserDebug,
     ...matchMetadata,
     pageA: fieldA.pageNumber,
     pageB: fieldB.pageNumber,
