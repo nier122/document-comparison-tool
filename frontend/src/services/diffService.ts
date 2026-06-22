@@ -9,10 +9,15 @@ import type {
 import { classifyDifference } from './differenceClassifier';
 import { matchSemanticFields } from './fieldMatchingService';
 import type { FieldMatchConfidenceLevel } from './fieldMatchingService';
-import { parseFieldLabelAtStart } from './fieldLabelParser';
+import {
+  isFieldLabelSuffix,
+  parseFieldLabelAtStart,
+} from './fieldLabelParser';
 import {
   detectTableHeaderColumns,
+  findFirstRealFieldValue,
   mapTableRowToColumns,
+  parseStructuredFieldText,
 } from './structuredFieldParser';
 
 type TextBlock = {
@@ -594,9 +599,15 @@ function getEmbeddedFieldCandidate(
   location: PdfTextLocation,
   pageNumber: number,
 ): FieldCandidate | null {
-  const match = getLabelAtStart(location.text, [fieldDefinition]);
+  const match = parseStructuredFieldText(
+    location.text,
+    fieldDefinition.aliases.map((alias) => ({
+      alias,
+      field: fieldDefinition,
+    })),
+  );
 
-  if (match === undefined || match.fieldDefinition.key !== fieldDefinition.key) {
+  if (match === undefined || match.field.key !== fieldDefinition.key) {
     return null;
   }
 
@@ -604,7 +615,7 @@ function getEmbeddedFieldCandidate(
 
   if (
     value.length === 0 ||
-    /^(?:no\.?|number|#|id)$/i.test(value)
+    isFieldLabelSuffix(value)
   ) {
     return null;
   }
@@ -675,6 +686,17 @@ function getValueLocationsAfterLabel(
   valueStartIndex: number,
 ) {
   const valueLocations: PdfTextLocation[] = [];
+  const firstRealValue = findFirstRealFieldValue(
+    locations.slice(valueStartIndex),
+    (location) => location.text,
+    (text) =>
+      doesValueMatchField(fieldDefinition, text) ||
+      doesValueMatchField(
+        fieldDefinition,
+        getCellValueForField(fieldDefinition, text),
+      ),
+    isFieldLabelSuffix,
+  );
 
   for (let locationIndex = valueStartIndex; locationIndex < locations.length; locationIndex += 1) {
     const location = locations[locationIndex];
@@ -705,6 +727,13 @@ function getValueLocationsAfterLabel(
     const combinedValue = normalizeDisplayText(nextValueLocations.map((valueLocation) => valueLocation.text).join(' '));
     const cellValue = getCellValueForField(fieldDefinition, location.text);
 
+    if (
+      valueLocations.length === 0 &&
+      isFieldLabelSuffix(singleValue)
+    ) {
+      continue;
+    }
+
     if (doesValueMatchField(fieldDefinition, singleValue)) {
       return [location];
     }
@@ -720,7 +749,11 @@ function getValueLocationsAfterLabel(
     break;
   }
 
-  return valueLocations;
+  return valueLocations.length > 0
+    ? valueLocations
+    : firstRealValue === undefined
+      ? []
+      : [firstRealValue];
 }
 
 function addFieldCandidate(candidates: FieldCandidate[], candidate: FieldCandidate) {
@@ -728,7 +761,7 @@ function addFieldCandidate(candidates: FieldCandidate[], candidate: FieldCandida
 
   if (
     value.length === 0 ||
-    /^(?:no\.?|number|#|id)$/i.test(value)
+    isFieldLabelSuffix(value)
   ) {
     return;
   }

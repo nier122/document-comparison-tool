@@ -16,7 +16,7 @@ export type FieldParserDebugEntry = {
   detectedValue: string;
 };
 
-const LABEL_SUFFIX_PATTERN = /^(?:no\.?|number|#|id|ref\.?|code|type)$/i;
+const LABEL_SUFFIX_PATTERN = /^(?:no\.?|number|#|id|ref\.?|code|type)(?::)?$/i;
 const LEADING_SEPARATOR_PATTERN = /^\s*(?::|\||-)\s*/;
 const TOKEN_PATTERN = /\S+/g;
 
@@ -97,6 +97,10 @@ function extendLabelBoundary(textAfterAlias: string) {
   }
 
   return 0;
+}
+
+export function isFieldLabelSuffix(text: string) {
+  return LABEL_SUFFIX_PATTERN.test(normalizeParserText(text));
 }
 
 export function parseFieldLabelAtStart<T>(

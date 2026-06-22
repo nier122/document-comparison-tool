@@ -15,6 +15,36 @@ export type TableFieldValue<T, TCell extends PositionedCell> = {
   cells: TCell[];
 };
 
+export function parseStructuredFieldText<T>(
+  rawText: string,
+  aliases: FieldLabelAlias<T>[],
+) {
+  const parsed = parseFieldLabelAtStart(rawText, aliases);
+
+  if (
+    parsed === undefined ||
+    parsed.valueText.length === 0 ||
+    isFieldLabelSuffix(parsed.valueText)
+  ) {
+    return undefined;
+  }
+
+  return parsed;
+}
+
+export function findFirstRealFieldValue<T>(
+  values: T[],
+  getText: (value: T) => string,
+  isValidValue: (text: string) => boolean,
+  isLabelSuffix: (text: string) => boolean,
+) {
+  return values.find((value) => {
+    const text = normalizeCellText(getText(value));
+
+    return !isLabelSuffix(text) && isValidValue(text);
+  });
+}
+
 export function detectTableHeaderColumns<T, TCell extends PositionedCell>(
   cells: TCell[],
   resolveField: (label: string) => T | undefined,
@@ -96,3 +126,8 @@ export function mapTableRowToColumns<T, TCell extends PositionedCell>(
     })
     .filter((fieldValue) => fieldValue.value.length > 0);
 }
+import {
+  isFieldLabelSuffix,
+  parseFieldLabelAtStart,
+} from './fieldLabelParser.ts';
+import type { FieldLabelAlias } from './fieldLabelParser.ts';

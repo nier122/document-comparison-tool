@@ -3,11 +3,15 @@ import test from 'node:test';
 import { parseFieldLabelAtStart } from '../src/services/fieldLabelParser.ts';
 import {
   detectTableHeaderColumns,
+  findFirstRealFieldValue,
   mapTableRowToColumns,
+  parseStructuredFieldText,
 } from '../src/services/structuredFieldParser.ts';
+import { isFieldLabelSuffix } from '../src/services/fieldLabelParser.ts';
 
 const aliases = [
   'PO',
+  'Purchase Order',
   'Invoice',
   'Reference',
   'Customer',
@@ -16,6 +20,9 @@ const aliases = [
 
 const cases = [
   ['PO No. 22884995', 'PO No.', '22884995'],
+  ['PO No.: 22884996', 'PO No.', '22884996'],
+  ['PO Number 22884996', 'PO Number', '22884996'],
+  ['Purchase Order No. 22884996', 'Purchase Order No.', '22884996'],
   ['Invoice No. INV-1001', 'Invoice No.', 'INV-1001'],
   ['Reference No. RFQ-55', 'Reference No.', 'RFQ-55'],
   ['Customer ID C001', 'Customer ID', 'C001'],
@@ -28,6 +35,42 @@ cases.forEach(([rawText, expectedLabel, expectedValue]) => {
 
     assert.equal(result?.labelText, expectedLabel);
     assert.equal(result?.valueText, expectedValue);
+  });
+});
+
+test('skips a split No. token and selects the real PO value', () => {
+  const value = findFirstRealFieldValue(
+    ['No.', '22884996'],
+    (candidate) => candidate,
+    (candidate) => /^[A-Z0-9][A-Z0-9./-]*$/i.test(candidate),
+    isFieldLabelSuffix,
+  );
+
+  assert.equal(value, '22884996');
+});
+
+test('structured PO parser returns only the real value for every supported form', () => {
+  const poAliases = [
+    'po',
+    'po no',
+    'po number',
+    'purchase order',
+    'purchase order no',
+    'purchase order number',
+  ].map((alias) => ({ alias, field: 'PO Number' }));
+  const examples = [
+    'PO No. 22884996',
+    'PO No.: 22884996',
+    'PO Number 22884996',
+    'Purchase Order No. 22884996',
+  ];
+
+  examples.forEach((rawText) => {
+    const parsed = parseStructuredFieldText(rawText, poAliases);
+
+    assert.equal(parsed?.field, 'PO Number');
+    assert.equal(parsed?.valueText, '22884996');
+    assert.notEqual(parsed?.valueText, 'No.');
   });
 });
 
